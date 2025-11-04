@@ -1,0 +1,17 @@
+services:
+  wechat_official_account_mcp:
+    build: .
+    container_name: wechat_official_account_mcp
+    ports:
+      - "5000:5000"
+    volumes:
+      - .:/app
+    environment:
+      - FLASK_APP=app.py
+      - FLASK_ENV=development
+    networks:
+      - wechat_network
+
+networks:
+  wechat_network:
+    driver: bridge
