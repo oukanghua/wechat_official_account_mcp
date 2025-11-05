@@ -184,8 +184,12 @@ async def handle_media_upload_tool(arguments: Dict[str, Any], api_client, storag
             return f"未知操作: {action}"
     
     except Exception as e:
-        logger.error(f'素材操作失败: {str(e)}', exc_info=True)
-        return f"素材操作失败: {str(e)}"
+        import traceback
+        error_detail = str(e)
+        if logger.isEnabledFor(logging.DEBUG):
+            error_detail += f"\n详细错误信息:\n{traceback.format_exc()}"
+        logger.error(f'素材操作失败: {error_detail}', exc_info=True)
+        return f"素材操作失败: {error_detail}"
 
 
 async def handle_upload_img_tool(arguments: Dict[str, Any], api_client) -> str:
@@ -213,8 +217,12 @@ async def handle_upload_img_tool(arguments: Dict[str, Any], api_client) -> str:
         return f"图片上传成功！\n图片URL: {result.get('url')}"
     
     except Exception as e:
-        logger.error(f'上传图片失败: {str(e)}', exc_info=True)
-        return f"上传图片失败: {str(e)}"
+        import traceback
+        error_detail = str(e)
+        if logger.isEnabledFor(logging.DEBUG):
+            error_detail += f"\n详细错误信息:\n{traceback.format_exc()}"
+        logger.error(f'上传图片失败: {error_detail}', exc_info=True)
+        return f"上传图片失败: {error_detail}"
 
 
 async def handle_permanent_media_tool(arguments: Dict[str, Any], api_client, storage_manager) -> str:
@@ -310,6 +318,10 @@ async def handle_permanent_media_tool(arguments: Dict[str, Any], api_client, sto
             return f"未知操作: {action}"
     
     except Exception as e:
-        logger.error(f'永久素材操作失败: {str(e)}', exc_info=True)
-        return f"永久素材操作失败: {str(e)}"
+        import traceback
+        error_detail = str(e)
+        if logger.isEnabledFor(logging.DEBUG):
+            error_detail += f"\n详细错误信息:\n{traceback.format_exc()}"
+        logger.error(f'永久素材操作失败: {error_detail}', exc_info=True)
+        return f"永久素材操作失败: {error_detail}"
 

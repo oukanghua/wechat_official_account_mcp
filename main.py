@@ -146,8 +146,12 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             return [TextContent(type="text", text=f"未知工具: {name}")]
     
     except Exception as e:
-        logger.error(f"调用工具 {name} 时出错: {str(e)}", exc_info=True)
-        return [TextContent(type="text", text=f"工具调用失败: {str(e)}")]
+        import traceback
+        error_detail = str(e)
+        # 总是包含堆栈信息，便于调试
+        error_detail += f"\n\n详细错误信息:\n{traceback.format_exc()}"
+        logger.error(f"调用工具 {name} 时出错: {error_detail}", exc_info=True)
+        return [TextContent(type="text", text=f"工具调用失败: {error_detail}")]
 
 
 async def main():

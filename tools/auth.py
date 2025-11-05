@@ -102,6 +102,10 @@ async def handle_auth_tool(arguments: Dict[str, Any], auth_manager) -> str:
             return f"未知操作: {action}"
     
     except Exception as e:
-        logger.error(f'认证操作失败: {str(e)}', exc_info=True)
-        return f"认证操作失败: {str(e)}"
+        import traceback
+        error_detail = str(e)
+        if logger.isEnabledFor(logging.DEBUG):
+            error_detail += f"\n详细错误信息:\n{traceback.format_exc()}"
+        logger.error(f'认证操作失败: {error_detail}', exc_info=True)
+        return f"认证操作失败: {error_detail}"
 

@@ -72,8 +72,10 @@ class WechatApiClient:
             response_data = response.json()
             
             if 'errcode' in response_data and response_data['errcode'] != 0:
+                errcode = response_data.get('errcode', 'unknown')
+                errmsg = response_data.get('errmsg', '未知错误')
                 logger.error(f'获取访问令牌失败: {response_data}')
-                raise Exception(f'获取访问令牌失败: {response_data.get("errmsg", "未知错误")}')
+                raise Exception(f'获取访问令牌失败 (错误码: {errcode}): {errmsg}')
             
             self.access_token = response_data['access_token']
             # 设置过期时间，提前10分钟过期
@@ -120,8 +122,10 @@ class WechatApiClient:
             response_data = response.json()
             
             if 'errcode' in response_data and response_data['errcode'] != 0:
+                errcode = response_data.get('errcode', 'unknown')
+                errmsg = response_data.get('errmsg', '未知错误')
                 logger.error(f'获取访问令牌失败: {response_data}')
-                raise Exception(f'获取访问令牌失败: {response_data.get("errmsg", "未知错误")}')
+                raise Exception(f'获取访问令牌失败 (错误码: {errcode}): {errmsg}')
             
             self.access_token = response_data['access_token']
             # 设置过期时间，提前10分钟过期
@@ -211,14 +215,34 @@ class WechatApiClient:
             
             # 检查错误
             if isinstance(response_data, dict) and 'errcode' in response_data and response_data['errcode'] != 0:
+                errcode = response_data.get('errcode', 'unknown')
+                errmsg = response_data.get('errmsg', '未知错误')
                 logger.error(f'API请求失败: {response_data}')
-                raise Exception(f'API请求失败: {response_data.get("errmsg", "未知错误")}')
+                error_msg = f'API请求失败 (错误码: {errcode}): {errmsg}'
+                if response.status_code:
+                    error_msg += f'\nHTTP状态码: {response.status_code}'
+                if endpoint:
+                    error_msg += f'\n请求端点: {endpoint}'
+                raise Exception(error_msg)
             
             return response_data
             
+        except requests.exceptions.RequestException as e:
+            error_msg = f'网络请求异常: {str(e)}'
+            if hasattr(e, 'response') and e.response is not None:
+                try:
+                    error_detail = e.response.json()
+                    if isinstance(error_detail, dict) and 'errcode' in error_detail:
+                        error_msg += f'\n错误码: {error_detail.get("errcode")}'
+                        error_msg += f'\n错误信息: {error_detail.get("errmsg", "未知错误")}'
+                except:
+                    error_msg += f'\n响应内容: {e.response.text[:200]}'
+            logger.error(f'请求异常: {error_msg}', exc_info=True)
+            raise Exception(error_msg) from e
         except Exception as e:
-            logger.error(f'请求异常: {str(e)}')
-            raise
+            error_msg = f'请求异常: {str(e)}'
+            logger.error(error_msg, exc_info=True)
+            raise Exception(error_msg) from e
     
     # 素材管理相关方法
     def upload_permanent_media(self, media_type: str, file_path: str = None, file_content: bytes = None, 
@@ -300,7 +324,9 @@ class WechatApiClient:
         try:
             json_response = response.json()
             if 'errcode' in json_response and json_response['errcode'] != 0:
-                raise Exception(f'获取素材失败: {json_response.get("errmsg", "未知错误")}')
+                errcode = json_response.get('errcode', 'unknown')
+                errmsg = json_response.get('errmsg', '未知错误')
+                raise Exception(f'获取永久素材失败 (错误码: {errcode}): {errmsg}')
         except json.JSONDecodeError:
             # 非JSON响应，说明是文件内容
             pass
@@ -490,7 +516,9 @@ class WechatApiClient:
         try:
             json_response = response.json()
             if 'errcode' in json_response and json_response['errcode'] != 0:
-                raise Exception(f'获取素材失败: {json_response.get("errmsg", "未知错误")}')
+                errcode = json_response.get('errcode', 'unknown')
+                errmsg = json_response.get('errmsg', '未知错误')
+                raise Exception(f'获取临时素材失败 (错误码: {errcode}): {errmsg}')
         except json.JSONDecodeError:
             # 非JSON响应，说明是文件内容
             pass

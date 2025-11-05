@@ -124,6 +124,10 @@ async def handle_publish_tool(arguments: Dict[str, Any], api_client) -> str:
             return f"未知操作: {action}"
     
     except Exception as e:
-        logger.error(f'发布操作失败: {str(e)}', exc_info=True)
-        return f"发布操作失败: {str(e)}"
+        import traceback
+        error_detail = str(e)
+        if logger.isEnabledFor(logging.DEBUG):
+            error_detail += f"\n详细错误信息:\n{traceback.format_exc()}"
+        logger.error(f'发布操作失败: {error_detail}', exc_info=True)
+        return f"发布操作失败: {error_detail}"
 
