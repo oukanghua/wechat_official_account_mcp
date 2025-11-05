@@ -241,9 +241,27 @@ class WechatApiClient:
         
         files = {}
         if file_path:
-            files['media'] = open(file_path, 'rb')
+            # 根据文件扩展名确定 MIME 类型
+            import mimetypes
+            mime_type, _ = mimetypes.guess_type(file_path)
+            if not mime_type:
+                # 默认 MIME 类型
+                if media_type == 'image':
+                    mime_type = 'image/jpeg'
+                elif media_type == 'voice':
+                    mime_type = 'audio/mpeg'
+                elif media_type == 'video':
+                    mime_type = 'video/mp4'
+                elif media_type == 'thumb':
+                    mime_type = 'image/jpeg'
+            
+            file_name = os.path.basename(file_path)
+            files['media'] = (file_name, open(file_path, 'rb'), mime_type)
         elif file_content:
-            files['media'] = ('file', file_content)
+            # 使用 file_content 时需要指定文件名和 MIME 类型
+            file_name = 'image.jpg' if media_type == 'image' else f'media.{media_type}'
+            mime_type = 'image/jpeg' if media_type in ('image', 'thumb') else f'{media_type}/mpeg'
+            files['media'] = (file_name, file_content, mime_type)
         else:
             raise ValueError('必须提供file_path或file_content')
         

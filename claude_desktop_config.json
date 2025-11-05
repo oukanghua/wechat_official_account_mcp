@@ -1,7 +1,7 @@
 {
   "mcpServers": {
     "wechat-official-account": {
-      "command": "C:\\Users\\maluw\\AppData\\Local\\Microsoft\\WindowsApps\\python.exe",
+      "command": "python",
       "args": [
         "C:\\Users\\maluw\\Code\\MCP\\wechat_official_account_mcp\\main.py"
       ],

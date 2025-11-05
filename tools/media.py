@@ -151,13 +151,11 @@ async def handle_media_upload_tool(arguments: Dict[str, Any], api_client, storag
                     file_content = f.read()
                 file_name = os.path.basename(file_path)
             
-            # 上传素材
+            # 上传素材（临时素材不支持 title 和 introduction，只有视频永久素材才需要）
             result = api_client.upload_media(
                 media_type=media_type,
                 file_content=file_content,
-                filename=file_name,
-                title=arguments.get('title'),
-                introduction=arguments.get('introduction')
+                filename=file_name
             )
             
             # 保存到本地存储
@@ -242,13 +240,19 @@ async def handle_permanent_media_tool(arguments: Dict[str, Any], api_client, sto
                 with open(file_path, 'rb') as f:
                     file_content = f.read()
             
-            # 上传永久素材
-            result = api_client.upload_permanent_media(
-                media_type=media_type,
-                file_content=file_content,
-                title=arguments.get('title'),
-                introduction=arguments.get('introduction')
-            )
+            # 上传永久素材（图片类型不需要 title 和 introduction）
+            if media_type == 'video':
+                result = api_client.upload_permanent_media(
+                    media_type=media_type,
+                    file_content=file_content,
+                    title=arguments.get('title'),
+                    introduction=arguments.get('introduction')
+                )
+            else:
+                result = api_client.upload_permanent_media(
+                    media_type=media_type,
+                    file_content=file_content
+                )
             
             # 保存到本地存储
             storage_manager.save_media({
