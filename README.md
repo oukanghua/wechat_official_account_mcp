@@ -79,6 +79,156 @@ WECHAT_API_PROXY=api.weixin.qq.com
 WECHAT_API_TIMEOUT=30
 ```
 
+## Docker 部署
+
+> **注意**：如果在中国大陆地区遇到网络连接问题，请参考下面的"网络问题解决方案"部分。
+
+### 使用 Docker Compose（推荐）
+
+1. **创建环境变量文件**
+
+创建 `.env` 文件（或直接在 docker-compose.yml 中设置）：
+
+```env
+WECHAT_APP_ID=your_app_id
+WECHAT_APP_SECRET=your_app_secret
+WECHAT_TOKEN=your_token
+WECHAT_ENCODING_AES_KEY=your_encoding_aes_key
+WECHAT_SERVER_PORT=8000
+WECHAT_API_PROXY=api.weixin.qq.com
+WECHAT_API_TIMEOUT=30
+```
+
+2. **构建并启动服务**
+
+使用快速启动脚本（推荐）：
+
+**Linux/Mac:**
+```bash
+chmod +x docker-run.sh
+./docker-run.sh
+```
+
+**Windows:**
+```cmd
+docker-run.bat
+```
+
+或手动执行：
+
+```bash
+# 构建镜像
+docker-compose build
+
+# 启动服务
+docker-compose up -d
+
+# 查看日志
+docker-compose logs -f
+
+# 停止服务
+docker-compose down
+```
+
+3. **配置微信公众号**
+
+在微信公众平台配置服务器地址为：`http://your-domain:8000/wechat`
+
+### 使用 Docker 直接运行
+
+1. **构建镜像**
+
+```bash
+docker build -t wechat-official-account-mcp .
+```
+
+2. **运行容器**
+
+```bash
+# 运行消息接收服务器
+docker run -d \
+  --name wechat-server \
+  -p 8000:8000 \
+  -e WECHAT_APP_ID=your_app_id \
+  -e WECHAT_APP_SECRET=your_app_secret \
+  -e WECHAT_TOKEN=your_token \
+  -e WECHAT_ENCODING_AES_KEY=your_encoding_aes_key \
+  -v $(pwd)/data:/app/data \
+  wechat-official-account-mcp
+
+# 查看日志
+docker logs -f wechat-server
+```
+
+3. **运行 MCP 服务器**
+
+```bash
+# MCP 服务器通过 stdio 运行，通常不需要单独容器
+# 如果需要，可以这样运行：
+docker run -it \
+  --name wechat-mcp \
+  -v $(pwd)/data:/app/data \
+  -e WECHAT_APP_ID=your_app_id \
+  -e WECHAT_APP_SECRET=your_app_secret \
+  wechat-official-account-mcp \
+  python main.py
+```
+
+### Docker 环境变量
+
+| 变量名 | 说明 | 默认值 |
+|--------|------|--------|
+| `WECHAT_APP_ID` | 微信公众号 AppID | - |
+| `WECHAT_APP_SECRET` | 微信公众号 AppSecret | - |
+| `WECHAT_TOKEN` | 微信公众号 Token | - |
+| `WECHAT_ENCODING_AES_KEY` | 消息加密密钥 | - |
+| `WECHAT_SERVER_PORT` | 消息接收服务器端口 | 8000 |
+| `WECHAT_SERVER_HOST` | 消息接收服务器主机 | 0.0.0.0 |
+| `WECHAT_API_PROXY` | 微信 API 代理地址 | api.weixin.qq.com |
+| `WECHAT_API_TIMEOUT` | API 请求超时时间（秒） | 30 |
+
+### 网络问题解决方案
+
+如果遇到无法连接到 Docker Hub 的问题（常见于中国大陆地区），可以使用以下方法：
+
+#### 方法 1：配置 Docker 镜像加速器（推荐）
+
+1. **配置 Docker Desktop 镜像加速器**
+
+在 Docker Desktop 设置中添加镜像加速器：
+- 阿里云：`https://registry.cn-hangzhou.aliyuncs.com`
+- 腾讯云：`https://mirror.ccs.tencentyun.com`
+- 网易：`https://hub-mirror.c.163.com`
+
+2. **或使用国内优化的 Docker Compose 配置**
+
+```bash
+# 使用国内优化的配置
+docker-compose -f docker-compose.china.yml build
+docker-compose -f docker-compose.china.yml up -d
+```
+
+#### 方法 2：使用已存在的本地镜像
+
+```bash
+# 先手动拉取镜像（如果网络允许）
+docker pull python:3.12-slim
+
+# 然后再构建
+docker-compose build
+```
+
+#### 方法 3：使用代理
+
+如果已有代理，可以配置 Docker 使用代理：
+
+```bash
+# 设置代理环境变量
+export HTTP_PROXY=http://your-proxy:port
+export HTTPS_PROXY=http://your-proxy:port
+docker-compose build
+```
+
 ## 使用
 
 ### 作为 MCP 服务器使用

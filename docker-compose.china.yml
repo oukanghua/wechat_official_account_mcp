@@ -1,26 +1,12 @@
-services:
-  # MCP 服务器（用于通过 MCP 协议调用工具）
-  # 注意：MCP 服务器通常通过 stdio 运行，不需要暴露端口
-  # 如果需要调试，可以取消注释下面的配置
-  # mcp-server:
-  #   build: .
-  #   container_name: wechat_mcp_server
-  #   restart: unless-stopped
-  #   volumes:
-  #     - .:/app
-  #     - ./data:/app/data  # 持久化数据
-  #   environment:
-  #     - WECHAT_APP_ID=${WECHAT_APP_ID:-}
-  #     - WECHAT_APP_SECRET=${WECHAT_APP_SECRET:-}
-  #     - WECHAT_TOKEN=${WECHAT_TOKEN:-}
-  #     - WECHAT_ENCODING_AES_KEY=${WECHAT_ENCODING_AES_KEY:-}
-  #   command: python main.py
-  #   stdin_open: true
-  #   tty: true
+# 适用于中国网络环境的 Docker Compose 配置
+# 使用国内镜像源和优化的构建配置
 
+services:
   # 微信公众号消息接收服务器
   wechat-server:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile.china
     container_name: wechat_message_server
     restart: unless-stopped
     ports:
@@ -54,3 +40,4 @@ networks:
 volumes:
   wechat_data:
     driver: local
+

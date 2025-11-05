@@ -21,15 +21,30 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 
 # 导入消息处理模块
-from handlers.text import TextMessageHandler
-from handlers.image import ImageMessageHandler
-from handlers.voice import VoiceMessageHandler
-from handlers.link import LinkMessageHandler
-from handlers.event import EventMessageHandler
-from handlers.unsupported import UnsupportedMessageHandler
-from utils.message_parser import MessageParser
-from utils.wechat_crypto import WechatMessageCrypto
-from storage.auth_manager import AuthManager
+try:
+    from handlers.text import TextMessageHandler
+    from handlers.image import ImageMessageHandler
+    from handlers.voice import VoiceMessageHandler
+    from handlers.link import LinkMessageHandler
+    from handlers.event import EventMessageHandler
+    from handlers.unsupported import UnsupportedMessageHandler
+    from utils.message_parser import MessageParser
+    from utils.wechat_crypto import WechatMessageCrypto
+    from storage.auth_manager import AuthManager
+except ImportError:
+    # 如果导入失败，尝试相对导入
+    import sys
+    import os
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from handlers.text import TextMessageHandler
+    from handlers.image import ImageMessageHandler
+    from handlers.voice import VoiceMessageHandler
+    from handlers.link import LinkMessageHandler
+    from handlers.event import EventMessageHandler
+    from handlers.unsupported import UnsupportedMessageHandler
+    from utils.message_parser import MessageParser
+    from utils.wechat_crypto import WechatMessageCrypto
+    from storage.auth_manager import AuthManager
 
 # 初始化认证管理器
 auth_manager = AuthManager()
