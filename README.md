@@ -117,7 +117,7 @@ docker-run.bat
 或手动执行：
 
 ```bash
-# 构建镜像
+# 构建镜像（生产环境）
 docker-compose build
 
 # 启动服务
@@ -128,6 +128,14 @@ docker-compose logs -f
 
 # 停止服务
 docker-compose down
+```
+
+**开发模式**（需要实时修改代码）：
+
+```bash
+# 使用开发配置（挂载代码目录）
+docker-compose -f docker-compose.dev.yml build
+docker-compose -f docker-compose.dev.yml up -d
 ```
 
 3. **配置微信公众号**
@@ -235,18 +243,44 @@ docker-compose build
 
 #### 1. 配置 MCP 客户端
 
-在 Claude Desktop 或 Cursor 的 MCP 配置文件中添加：
+**Windows 用户**（Claude Desktop 配置路径：`%APPDATA%\Claude\claude_desktop_config.json`）：
 
 ```json
 {
   "mcpServers": {
     "wechat-official-account": {
       "command": "python",
-      "args": ["/path/to/wechat_official_account_mcp/main.py"]
+      "args": [
+        "C:\\Users\\maluw\\Code\\MCP\\wechat_official_account_mcp\\main.py"
+      ],
+      "env": {
+        "WECHAT_APP_ID": "wx5d3e84e3e5720b58",
+        "WECHAT_APP_SECRET": "your_app_secret_here"
+      }
     }
   }
 }
 ```
+
+**Linux/Mac 用户**：
+
+```json
+{
+  "mcpServers": {
+    "wechat-official-account": {
+      "command": "python",
+      "args": [
+        "/path/to/wechat_official_account_mcp/main.py"
+      ]
+    }
+  }
+}
+```
+
+**注意**：
+- 将路径替换为你的实际项目路径
+- 如果已配置 `.env` 文件，可以省略 `env` 部分
+- 详细配置说明请参考 `MCP_SETUP.md`
 
 #### 2. 使用工具
 

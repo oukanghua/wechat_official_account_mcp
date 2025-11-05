@@ -130,34 +130,45 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
 
 async def main():
     """主函数"""
-    # 加载环境变量
-    if os.path.exists('.env'):
-        from dotenv import load_dotenv
-        load_dotenv()
-    
-    # 确保必要的目录存在
-    required_dirs = ['tools', 'handlers', 'api', 'utils', 'storage', 'config']
-    for dir_name in required_dirs:
-        Path(dir_name).mkdir(exist_ok=True)
-    
-    logger.info("微信公众号 MCP 服务器启动中...")
-    
-    # 使用 stdio 传输运行服务器
     try:
-        async with stdio_server() as streams:
+        # 确保在正确的目录
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        os.chdir(script_dir)
+        
+        # 加载环境变量
+        if os.path.exists('.env'):
+            from dotenv import load_dotenv
+            load_dotenv()
+        
+        # 确保必要的目录存在
+        required_dirs = ['tools', 'handlers', 'api', 'utils', 'storage', 'config']
+        for dir_name in required_dirs:
+            Path(dir_name).mkdir(exist_ok=True)
+        
+        logger.info("微信公众号 MCP 服务器启动中...")
+        logger.info(f"工作目录: {os.getcwd()}")
+        logger.info(f"Python 版本: {sys.version}")
+        
+        # 使用 stdio 传输运行服务器
+        try:
+            async with stdio_server() as streams:
+                await server.run(
+                    streams[0] if isinstance(streams, tuple) else streams.read,
+                    streams[1] if isinstance(streams, tuple) else streams.write,
+                    server.create_initialization_options() if hasattr(server, 'create_initialization_options') else {}
+                )
+        except Exception as e:
+            logger.error(f"启动 MCP 服务器失败: {str(e)}", exc_info=True)
+            # 尝试使用简化的运行方式
+            import sys
+            logger.info("尝试使用简化的运行方式...")
             await server.run(
-                streams[0] if isinstance(streams, tuple) else streams.read,
-                streams[1] if isinstance(streams, tuple) else streams.write,
-                server.create_initialization_options() if hasattr(server, 'create_initialization_options') else {}
+                sys.stdin.buffer,
+                sys.stdout.buffer
             )
     except Exception as e:
-        logger.error(f"启动 MCP 服务器失败: {str(e)}")
-        # 尝试使用简化的运行方式
-        import sys
-        await server.run(
-            sys.stdin.buffer,
-            sys.stdout.buffer
-        )
+        logger.error(f"MCP 服务器启动异常: {str(e)}", exc_info=True)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

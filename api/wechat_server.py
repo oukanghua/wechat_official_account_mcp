@@ -20,34 +20,58 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
+# 将项目根目录添加到 Python 路径
+import sys
+import os
+_project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _project_root not in sys.path:
+    sys.path.insert(0, _project_root)
+
 # 导入消息处理模块
-try:
-    from handlers.text import TextMessageHandler
-    from handlers.image import ImageMessageHandler
-    from handlers.voice import VoiceMessageHandler
-    from handlers.link import LinkMessageHandler
-    from handlers.event import EventMessageHandler
-    from handlers.unsupported import UnsupportedMessageHandler
-    from utils.message_parser import MessageParser
-    from utils.wechat_crypto import WechatMessageCrypto
-    from storage.auth_manager import AuthManager
-except ImportError:
-    # 如果导入失败，尝试相对导入
-    import sys
-    import os
-    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    from handlers.text import TextMessageHandler
-    from handlers.image import ImageMessageHandler
-    from handlers.voice import VoiceMessageHandler
-    from handlers.link import LinkMessageHandler
-    from handlers.event import EventMessageHandler
-    from handlers.unsupported import UnsupportedMessageHandler
-    from utils.message_parser import MessageParser
-    from utils.wechat_crypto import WechatMessageCrypto
-    from storage.auth_manager import AuthManager
+from handlers.text import TextMessageHandler
+from handlers.image import ImageMessageHandler
+from handlers.voice import VoiceMessageHandler
+from handlers.link import LinkMessageHandler
+from handlers.event import EventMessageHandler
+from handlers.unsupported import UnsupportedMessageHandler
+from utils.message_parser import MessageParser
+from utils.wechat_crypto import WechatMessageCrypto
+from storage.auth_manager import AuthManager
 
 # 初始化认证管理器
 auth_manager = AuthManager()
+
+# 启动时从环境变量加载配置（如果数据库中没有配置）
+def _load_config_from_env():
+    """从环境变量加载配置到数据库"""
+    # 检查数据库中是否已有配置
+    existing_config = auth_manager.get_config()
+    if existing_config:
+        logger.info("已存在数据库配置，跳过环境变量加载")
+        return
+    
+    # 从环境变量读取配置
+    app_id = os.getenv('WECHAT_APP_ID', '')
+    app_secret = os.getenv('WECHAT_APP_SECRET', '')
+    token = os.getenv('WECHAT_TOKEN', '')
+    encoding_aes_key = os.getenv('WECHAT_ENCODING_AES_KEY', '')
+    
+    if app_id and app_secret:
+        try:
+            auth_manager.set_config({
+                'app_id': app_id,
+                'app_secret': app_secret,
+                'token': token,
+                'encoding_aes_key': encoding_aes_key
+            })
+            logger.info(f"已从环境变量加载配置: app_id={app_id}")
+        except Exception as e:
+            logger.error(f"从环境变量加载配置失败: {str(e)}")
+    else:
+        logger.warning("环境变量中未找到 WECHAT_APP_ID 或 WECHAT_APP_SECRET")
+
+# 启动时加载配置
+_load_config_from_env()
 
 # 消息处理器映射
 MESSAGE_HANDLERS = {
@@ -169,8 +193,18 @@ def wechat_post():
         # 获取处理器
         handler = MESSAGE_HANDLERS.get(message.msg_type, UnsupportedMessageHandler())
         
-        # 处理消息
-        reply_content = handler.handle(message)
+        # 处理消息（独立服务器模式，简化处理）
+        try:
+            # 适配独立服务器环境，不需要 session 和 app_settings
+            if hasattr(handler, 'handle_message'):
+                # 如果处理器有独立服务器版本的 handle_message 方法
+                reply_content = handler.handle_message(message, auth_manager)
+            else:
+                # 否则使用默认的 handle 方法，传入 None 作为 session 和 app_settings
+                reply_content = handler.handle(message, None, {}) or "收到消息"
+        except Exception as e:
+            logger.error(f"处理消息异常: {str(e)}", exc_info=True)
+            reply_content = "处理消息时发生错误"
         
         # 构建回复
         reply_xml = MessageParser.build_text_reply(

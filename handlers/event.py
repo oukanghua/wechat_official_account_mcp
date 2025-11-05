@@ -1,8 +1,8 @@
 import logging
 from typing import Dict, Any, Optional
 from .base import MessageHandler
-from ..models import WechatMessage
-from ..utils.wechat_api_client import WechatApiClient
+from models import WechatMessage
+from utils.wechat_api_client import WechatApiClient
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +44,22 @@ class EventMessageHandler(MessageHandler):
         except Exception as e:
             logger.error(f'处理事件消息失败: {str(e)}')
             return None
+    
+    def handle_message(self, message: WechatMessage, auth_manager: Any) -> str:
+        """独立服务器模式下的消息处理方法"""
+        try:
+            event_type = getattr(message, 'event', '')
+            logger.info(f"收到事件消息: {event_type}")
+            
+            if event_type == 'subscribe':
+                return "欢迎关注！"
+            elif event_type == 'unsubscribe':
+                return ""  # 取消关注不回复
+            else:
+                return f"收到事件：{event_type}"
+        except Exception as e:
+            logger.error(f"处理事件消息失败: {str(e)}")
+            return ""
     
     def _handle_subscribe(self, message: WechatMessage) -> Optional[str]:
         """

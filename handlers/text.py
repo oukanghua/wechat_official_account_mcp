@@ -2,7 +2,7 @@ import logging
 import traceback
 from typing import Dict, Any
 from .base import MessageHandler
-from ..models import WechatMessage
+from models import WechatMessage
 
 logger = logging.getLogger(__name__)
 
@@ -63,3 +63,22 @@ class TextMessageHandler(MessageHandler):
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(f"异常堆栈: {traceback.format_exc()}")
             return f"抱歉，处理您的消息时出现问题: {str(e)}"
+    
+    def handle_message(self, message: WechatMessage, auth_manager: Any) -> str:
+        """
+        独立服务器模式下的消息处理方法（简化版）
+        
+        Args:
+            message: 微信消息对象
+            auth_manager: 认证管理器
+            
+        Returns:
+            str: 回复内容
+        """
+        try:
+            logger.info(f"收到文本消息: {message.content[:50]}")
+            # 简化处理：直接回复收到的内容
+            return f"收到您的消息: {message.content}"
+        except Exception as e:
+            logger.error(f"处理消息失败: {str(e)}")
+            return "收到您的消息"

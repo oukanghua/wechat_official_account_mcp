@@ -1,7 +1,7 @@
 import logging
 from typing import Dict, Any
 from flask import Blueprint, request, jsonify
-from ..handlers import (
+from handlers import (
     TextMessageHandler,
     EventMessageHandler,
     ImageMessageHandler,
@@ -9,8 +9,8 @@ from ..handlers import (
     LinkMessageHandler,
     UnsupportedMessageHandler
 )
-from ..utils.message_parser import MessageParser
-from ..utils.wechat_crypto import WechatMessageCrypto
+from utils.message_parser import MessageParser
+from utils.wechat_crypto import WechatMessageCrypto
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +33,7 @@ config_cache: Dict[str, Any] = {}
 def get_config() -> Dict[str, Any]:
     """获取配置"""
     if not config_cache:
-        from ..config import load_config
+        from config import load_config
         config_cache.update(load_config())
     return config_cache
 

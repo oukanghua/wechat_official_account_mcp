@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "wechat-official-account": {
+      "command": "C:\\Users\\maluw\\AppData\\Local\\Microsoft\\WindowsApps\\python.exe",
+      "args": [
+        "C:\\Users\\maluw\\Code\\MCP\\wechat_official_account_mcp\\main.py"
+      ],
+      "env": {
+        "WECHAT_APP_ID": "wx5d3e84e3e5720b58",
+        "WECHAT_APP_SECRET": "5393f5c008c2d2941ee9fe981d55f8f2",
+        "WECHAT_TOKEN": "your_token_here",
+        "WECHAT_ENCODING_AES_KEY": "your_encoding_aes_key_here"
+      }
+    }
+  }
+}
+

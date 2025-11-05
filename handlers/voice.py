@@ -1,7 +1,7 @@
 import logging
-from typing import Optional
+from typing import Optional, Any
 from .base import MessageHandler
-from ..models import WechatMessage
+from models import WechatMessage
 
 logger = logging.getLogger(__name__)
 
@@ -45,3 +45,13 @@ class VoiceMessageHandler(MessageHandler):
             logger.error(f'处理语音消息失败: {str(e)}')
             error_reply = "处理语音消息时发生错误。请稍后重试。"
             return self._build_reply_text(message.from_user_name, message.to_user_name, error_reply)
+    
+    def handle_message(self, message: WechatMessage, auth_manager: Any) -> str:
+        """独立服务器模式下的消息处理方法"""
+        try:
+            recognition = getattr(message, 'recognition', '')
+            logger.info(f"收到语音消息，识别结果: {recognition[:50] if recognition else '无'}")
+            return f"收到您的语音消息{'：' + recognition if recognition else ''}"
+        except Exception as e:
+            logger.error(f"处理语音消息失败: {str(e)}")
+            return "收到您的语音消息"
