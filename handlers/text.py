@@ -66,7 +66,7 @@ class TextMessageHandler(MessageHandler):
     
     def handle_message(self, message: WechatMessage, auth_manager: Any) -> str:
         """
-        独立服务器模式下的消息处理方法（简化版）
+        独立服务器模式下的消息处理方法（支持 Dify AI 集成）
         
         Args:
             message: 微信消息对象
@@ -77,7 +77,45 @@ class TextMessageHandler(MessageHandler):
         """
         try:
             logger.info(f"收到文本消息: {message.content[:50]}")
-            # 简化处理：直接回复收到的内容
+            
+            # 尝试使用 Dify AI（如果配置了）
+            try:
+                from utils.dify_api_client import get_dify_client
+                dify_client = get_dify_client()
+                
+                if dify_client:
+                    import os
+                    from dotenv import load_dotenv
+                    load_dotenv()
+                    
+                    app_id = os.getenv('DIFY_APP_ID', '')
+                    if app_id:
+                        # 调用 Dify API
+                        response_generator = dify_client.chat(
+                            app_id=app_id,
+                            query=message.content,
+                            user=message.from_user
+                        )
+                        
+                        # 处理响应
+                        answer_parts = []
+                        for chunk in response_generator:
+                            if isinstance(chunk, dict):
+                                if 'answer' in chunk:
+                                    answer_parts.append(chunk['answer'])
+                                elif chunk.get('event') == 'message_end':
+                                    break
+                        
+                        if answer_parts:
+                            answer = ''.join(answer_parts)
+                            logger.info(f"Dify AI 响应成功，长度: {len(answer)}")
+                            return answer
+            except ImportError:
+                logger.debug("Dify API 客户端未配置，使用默认回复")
+            except Exception as e:
+                logger.warning(f"Dify AI 调用失败: {str(e)}，使用默认回复")
+            
+            # 默认处理：直接回复收到的内容
             return f"收到您的消息: {message.content}"
         except Exception as e:
             logger.error(f"处理消息失败: {str(e)}")
