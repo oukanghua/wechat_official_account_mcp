@@ -1,0 +1,53 @@
+name: wechat_official_account_mcp
+version: 1.0.0
+description: 微信公众号管理器MCP - 专业的公众号运营与开发工具，集成消息处理、素材管理、内容发布等功能
+author: 合并自多个开源项目
+license: MIT
+icon: ./icon.svg
+
+# 插件类型
+type: extension
+
+# 认证配置
+auth:
+  type: key_pair
+  fields:
+    - name: app_id
+      label: 微信公众号AppID
+      type: string
+      required: true
+      sensitive: false
+    - name: app_secret
+      label: 微信公众号AppSecret
+      type: string
+      required: true
+      sensitive: true
+    - name: token
+      label: 微信公众号Token
+      type: string
+      required: false
+      sensitive: false
+    - name: encoding_aes_key
+      label: 微信公众号EncodingAESKey
+      type: string
+      required: false
+      sensitive: true
+
+# 环境变量
+env:
+  - name: WECHAT_API_TIMEOUT
+    description: 微信API请求超时时间(秒)
+    default: 30
+    required: false
+
+# 资源配置
+resources:
+  - type: file
+    path: ./requirements.txt
+
+# 标签
+tags:
+  - wechat
+  - official-account
+  - mcp
+  - dify

@@ -1,0 +1,20 @@
+version: '3.8'
+
+services:
+  wechat_official_account_manager:
+    build: .
+    container_name: wechat_official_account_manager
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    volumes:
+      - .:/app
+    environment:
+      - FLASK_APP=app.py
+      - FLASK_ENV=development
+    networks:
+      - wechat_network
+
+networks:
+  wechat_network:
+    driver: bridge

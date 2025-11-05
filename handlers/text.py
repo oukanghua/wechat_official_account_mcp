@@ -1,0 +1,65 @@
+import logging
+import traceback
+from typing import Dict, Any
+from .base import MessageHandler
+from ..models import WechatMessage
+
+logger = logging.getLogger(__name__)
+
+class TextMessageHandler(MessageHandler):
+    """文本消息处理器"""
+    
+    def handle(self, message: WechatMessage, session: Any, app_settings: Dict[str, Any]) -> str:
+        """
+        处理文本消息并返回回复内容
+        
+        Args:
+            message: 微信文本消息对象
+            session: 当前会话对象
+            app_settings: 应用设置
+            
+        Returns:
+            str: 处理后的回复内容
+        """
+        try:
+            # 记录处理开始
+            logger.info(f"开始处理用户文本消息: '{message.content[:50]}...'")
+            
+            # 获取会话ID
+            conversation_id = self._get_conversation_id(
+                session, 
+                self.get_storage_key(message.from_user, app_settings.get("app").get("app_id"))
+            )
+            
+            # 构建输入参数
+            inputs = {
+                "msgId": message.msg_id,
+                "msgType": message.msg_type,
+                "fromUser": message.from_user,
+                "media_id": message.media_id,
+                "createTime": message.create_time,
+                "content": message.content
+            }
+            
+            # 调用AI获取响应
+            response_generator = self._invoke_ai(
+                session, 
+                app_settings, 
+                message.content, 
+                conversation_id,
+                inputs=inputs,
+                user_id=message.from_user
+            )
+            
+            # 处理AI响应
+            answer = self._process_ai_response(response_generator)
+            
+            logger.info(f"处理完成，响应长度: {len(answer)}")
+            
+            return answer
+            
+        except Exception as e:
+            logger.error(f"处理文本消息失败: {str(e)}")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(f"异常堆栈: {traceback.format_exc()}")
+            return f"抱歉，处理您的消息时出现问题: {str(e)}"
