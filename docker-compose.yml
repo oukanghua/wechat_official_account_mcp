@@ -13,7 +13,9 @@
 services:
   # MCP 服务器
   wechat-mcp:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: wechat_mcp_server
     restart: unless-stopped
     profiles:
@@ -33,7 +35,9 @@ services:
 
   # 微信公众号消息服务器（默认启动，可通过 --profile server 单独启动）
   wechat-server:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: wechat_message_server
     restart: unless-stopped
     # 不设置 profiles，默认启动；如果设置了 profiles，则只会在指定 profile 时启动
