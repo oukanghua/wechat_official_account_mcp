@@ -104,9 +104,17 @@ WECHAT_APP_SECRET=your_app_secret
 WECHAT_TOKEN=your_token
 WECHAT_ENCODING_AES_KEY=your_encoding_aes_key  # 可选
 
+# Docker 服务控制（可选，仅供参考）
+# 默认情况下直接运行 docker compose up 会启动消息服务器
+# 如需启动 MCP 服务器，使用: docker compose --profile mcp up -d
+# 同时启动两个服务: docker compose --profile mcp up -d
+ENABLE_MCP=false          # 是否启用 MCP 服务器（仅供参考）
+ENABLE_SERVER=true        # 是否启用消息服务器（默认启用，仅供参考）
+
 # 消息服务器配置（可选）
-WECHAT_SERVER_PORT=8000  # 生产环境建议使用 80 或 443
+WECHAT_SERVER_PORT=8000   # 生产环境建议使用 80 或 443
 WECHAT_SERVER_HOST=0.0.0.0
+NETWORK_MODE=bridge       # Docker 网络模式：bridge（默认）或 host（80端口需要）
 
 # HTTPS 配置（使用 443 端口时需要）
 # WECHAT_SSL_CERT=/path/to/cert.pem
@@ -197,17 +205,59 @@ WECHAT_SSL_KEY=/path/to/key.pem
 
 ### Docker 部署
 
-#### 构建镜像
+**统一使用一个 docker-compose.yml 文件，通过 .env 配置控制启动哪些服务。**
 
-```bash
-docker build -t wechat-mcp .
+#### 1. 配置 .env 文件
+
+```env
+# 微信公众号配置（必需）
+WECHAT_APP_ID=your_app_id
+WECHAT_APP_SECRET=your_app_secret
+WECHAT_TOKEN=your_token
+WECHAT_ENCODING_AES_KEY=your_encoding_aes_key
+
+# 服务控制（必需）
+ENABLE_MCP=false          # 是否启用 MCP 服务器
+ENABLE_SERVER=true         # 是否启用消息服务器
+
+# 服务器配置
+WECHAT_SERVER_PORT=80      # 服务器端口（80 或 443 用于生产环境）
+NETWORK_MODE=host          # 网络模式：host（80端口需要）或 bridge（默认）
 ```
 
-#### 运行容器
+#### 2. 启动服务
 
 ```bash
-docker-compose up -d
+# 默认启动消息服务器（推荐）
+docker compose up -d --build
+
+# 仅启动 MCP 服务器
+docker compose --profile mcp up -d --build
+
+# 同时启动两个服务（消息服务器 + MCP 服务器）
+docker compose --profile mcp up -d --build
 ```
+
+#### 3. 常用命令
+
+```bash
+# 启动服务（默认启动消息服务器）
+docker compose up -d
+
+# 停止服务
+docker compose down
+
+# 查看日志
+docker compose logs -f
+
+# 重启服务
+docker compose restart
+
+# 查看状态
+docker compose ps
+```
+
+**详细说明**：请查看 [DOCKER_DEPLOYMENT.md](DOCKER_DEPLOYMENT.md)
 
 ### 生产环境部署
 
