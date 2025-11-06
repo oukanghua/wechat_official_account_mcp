@@ -71,8 +71,8 @@ services:
       timeout: 10s
       retries: 3
       start_period: 10s
-    networks:
-      - wechat_network
+    # 注意：当使用 network_mode: host 时，不能同时使用 networks 配置
+    # bridge 模式下 Docker Compose 会自动处理网络连接
 
 networks:
   wechat_network:
