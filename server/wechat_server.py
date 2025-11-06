@@ -703,12 +703,22 @@ def _wait_and_send_custom_message(message, message_status, config, completion_ev
 
 
 def main():
-    """启动 HTTP 服务器"""
+    """启动 HTTP/HTTPS 服务器"""
     port = int(os.getenv('WECHAT_SERVER_PORT', 8000))
     host = os.getenv('WECHAT_SERVER_HOST', '0.0.0.0')
     
-    logger.info(f"微信公众号消息服务器启动在 {host}:{port}")
-    app.run(host=host, port=port, debug=False)
+    # HTTPS 支持（443 端口通常需要 HTTPS）
+    ssl_cert = os.getenv('WECHAT_SSL_CERT', None)
+    ssl_key = os.getenv('WECHAT_SSL_KEY', None)
+    
+    # 如果配置了 SSL 证书，启用 HTTPS
+    if ssl_cert and ssl_key:
+        logger.info(f"微信公众号消息服务器启动在 {host}:{port} (HTTPS)")
+        app.run(host=host, port=port, debug=False, ssl_context=(ssl_cert, ssl_key))
+    else:
+        logger.info(f"微信公众号消息服务器启动在 {host}:{port} (HTTP)")
+        # 注意：生产环境建议使用反向代理（如 Nginx）提供 HTTPS
+        app.run(host=host, port=port, debug=False)
 
 
 if __name__ == '__main__':

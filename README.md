@@ -105,8 +105,12 @@ WECHAT_TOKEN=your_token
 WECHAT_ENCODING_AES_KEY=your_encoding_aes_key  # 可选
 
 # 消息服务器配置（可选）
-WECHAT_SERVER_PORT=8000
+WECHAT_SERVER_PORT=8000  # 生产环境建议使用 80 或 443
 WECHAT_SERVER_HOST=0.0.0.0
+
+# HTTPS 配置（使用 443 端口时需要）
+# WECHAT_SSL_CERT=/path/to/cert.pem
+# WECHAT_SSL_KEY=/path/to/key.pem
 
 # 消息处理配置（可选）
 WECHAT_TIMEOUT_MESSAGE=内容生成耗时较长，请稍等...
@@ -133,13 +137,32 @@ python main_mcp.py
 
 ### 启动消息服务器
 
-消息服务器提供 HTTP 接口接收微信消息：
+消息服务器提供 HTTP/HTTPS 接口接收微信消息：
 
 ```bash
 python main_server.py
 ```
 
-默认端口：8000
+**端口配置**：
+- 默认端口：8000（开发环境）
+- 生产环境：建议使用 80（HTTP）或 443（HTTPS）
+- 微信要求：服务器必须使用 80 或 443 端口
+
+**配置端口**（在 `.env` 文件中）：
+```env
+# 使用 80 端口（HTTP）
+WECHAT_SERVER_PORT=80
+
+# 或使用 443 端口（HTTPS，需要 SSL 证书）
+WECHAT_SERVER_PORT=443
+WECHAT_SSL_CERT=/path/to/cert.pem
+WECHAT_SSL_KEY=/path/to/key.pem
+```
+
+**注意事项**：
+1. 使用 80 端口需要 root 权限（Linux/Mac）或管理员权限（Windows）
+2. 使用 443 端口需要配置 SSL 证书（推荐使用 Let's Encrypt）
+3. 生产环境建议使用 Nginx 等反向代理提供 HTTPS，而不是直接在 Flask 中启用 SSL
 
 ### 配置 MCP 客户端
 
@@ -170,19 +193,32 @@ python main_server.py
 
 编辑设置文件，添加 MCP 服务器配置。
 
-## Docker 部署
+## 部署
 
-### 构建镜像
+### Docker 部署
+
+#### 构建镜像
 
 ```bash
 docker build -t wechat-mcp .
 ```
 
-### 运行容器
+#### 运行容器
 
 ```bash
 docker-compose up -d
 ```
+
+### 生产环境部署
+
+**重要**：微信公众号要求服务器使用 **80（HTTP）** 或 **443（HTTPS）** 端口。
+
+**推荐方案**：使用 Nginx 反向代理
+- 应用运行在 8000 端口（非特权端口，不需要 root 权限）
+- Nginx 监听 80/443 端口，转发到应用
+- 使用 Let's Encrypt 提供免费 HTTPS 证书
+
+详细部署说明请参考：[DEPLOYMENT.md](DEPLOYMENT.md)
 
 ## 消息服务器特性
 
