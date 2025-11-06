@@ -7,7 +7,7 @@ import threading
 import time
 from typing import Dict, Any, Optional, Union
 
-from models import WechatMessage
+from shared.models import WechatMessage
 
 logger = logging.getLogger(__name__)
 

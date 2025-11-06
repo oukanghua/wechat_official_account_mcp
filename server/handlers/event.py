@@ -1,8 +1,8 @@
 import logging
 from typing import Dict, Any, Optional
 from .base import MessageHandler
-from models import WechatMessage
-from utils.wechat_api_client import WechatApiClient
+from shared.models import WechatMessage
+from shared.utils.wechat_api_client import WechatApiClient
 
 logger = logging.getLogger(__name__)
 

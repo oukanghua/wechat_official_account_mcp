@@ -35,12 +35,12 @@ except ImportError:
 # 导入工具和工具函数
 # 延迟导入，在 main() 函数中导入，确保在正确的目录下
 try:
-    from tools.auth import register_auth_tools
-    from tools.media import register_media_tools
-    from tools.draft import register_draft_tools
-    from tools.publish import register_publish_tools
-    from storage.auth_manager import AuthManager
-    from storage.storage_manager import StorageManager
+    from mcp.tools.auth import register_auth_tools
+    from mcp.tools.media import register_media_tools
+    from mcp.tools.draft import register_draft_tools
+    from mcp.tools.publish import register_publish_tools
+    from shared.storage.auth_manager import AuthManager
+    from shared.storage.storage_manager import StorageManager
 except ImportError as e:
     logger.error(f"导入项目模块失败: {e}", exc_info=True)
     # 不要立即退出，让 main() 函数处理
@@ -58,10 +58,10 @@ async def list_tools() -> list[Tool]:
     """列出所有可用的工具"""
     try:
         # 动态导入，确保在正确的目录下
-        from tools.auth import register_auth_tools
-        from tools.media import register_media_tools
-        from tools.draft import register_draft_tools
-        from tools.publish import register_publish_tools
+        from mcp.tools.auth import register_auth_tools
+        from mcp.tools.media import register_media_tools
+        from mcp.tools.draft import register_draft_tools
+        from mcp.tools.publish import register_publish_tools
         
         tools = []
         
@@ -91,53 +91,53 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
     try:
         # 确保存储管理器已初始化
         if auth_manager is None or storage_manager is None:
-            from storage.auth_manager import AuthManager
-            from storage.storage_manager import StorageManager
+            from shared.storage.auth_manager import AuthManager
+            from shared.storage.storage_manager import StorageManager
             auth_manager = AuthManager()
             storage_manager = StorageManager()
         
         # 认证工具
         if name == "wechat_auth":
-            from tools.auth import handle_auth_tool
+            from mcp.tools.auth import handle_auth_tool
             result = await handle_auth_tool(arguments, auth_manager)
             return [TextContent(type="text", text=result)]
         
         # 临时素材工具
         elif name == "wechat_media_upload":
-            from tools.media import handle_media_upload_tool
-            from utils.wechat_api_client import WechatApiClient
+            from mcp.tools.media import handle_media_upload_tool
+            from shared.utils.wechat_api_client import WechatApiClient
             api_client = WechatApiClient.from_auth_manager(auth_manager)
             result = await handle_media_upload_tool(arguments, api_client, storage_manager)
             return [TextContent(type="text", text=result)]
         
         # 图文消息图片上传工具
         elif name == "wechat_upload_img":
-            from tools.media import handle_upload_img_tool
-            from utils.wechat_api_client import WechatApiClient
+            from mcp.tools.media import handle_upload_img_tool
+            from shared.utils.wechat_api_client import WechatApiClient
             api_client = WechatApiClient.from_auth_manager(auth_manager)
             result = await handle_upload_img_tool(arguments, api_client)
             return [TextContent(type="text", text=result)]
         
         # 永久素材工具
         elif name == "wechat_permanent_media":
-            from tools.media import handle_permanent_media_tool
-            from utils.wechat_api_client import WechatApiClient
+            from mcp.tools.media import handle_permanent_media_tool
+            from shared.utils.wechat_api_client import WechatApiClient
             api_client = WechatApiClient.from_auth_manager(auth_manager)
             result = await handle_permanent_media_tool(arguments, api_client, storage_manager)
             return [TextContent(type="text", text=result)]
         
         # 草稿工具
         elif name == "wechat_draft":
-            from tools.draft import handle_draft_tool
-            from utils.wechat_api_client import WechatApiClient
+            from mcp.tools.draft import handle_draft_tool
+            from shared.utils.wechat_api_client import WechatApiClient
             api_client = WechatApiClient.from_auth_manager(auth_manager)
             result = await handle_draft_tool(arguments, api_client)
             return [TextContent(type="text", text=result)]
         
         # 发布工具
         elif name == "wechat_publish":
-            from tools.publish import handle_publish_tool
-            from utils.wechat_api_client import WechatApiClient
+            from mcp.tools.publish import handle_publish_tool
+            from shared.utils.wechat_api_client import WechatApiClient
             api_client = WechatApiClient.from_auth_manager(auth_manager)
             result = await handle_publish_tool(arguments, api_client)
             return [TextContent(type="text", text=result)]
@@ -186,12 +186,12 @@ async def main():
         # 现在导入项目模块（在正确的目录下）
         print("MCP Server: Importing project modules...", file=sys.stderr, flush=True)
         try:
-            from tools.auth import register_auth_tools
-            from tools.media import register_media_tools
-            from tools.draft import register_draft_tools
-            from tools.publish import register_publish_tools
-            from storage.auth_manager import AuthManager
-            from storage.storage_manager import StorageManager
+            from mcp.tools.auth import register_auth_tools
+            from mcp.tools.media import register_media_tools
+            from mcp.tools.draft import register_draft_tools
+            from mcp.tools.publish import register_publish_tools
+            from shared.storage.auth_manager import AuthManager
+            from shared.storage.storage_manager import StorageManager
             
             print("MCP Server: Project modules imported successfully", file=sys.stderr, flush=True)
             

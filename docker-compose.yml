@@ -37,7 +37,7 @@ services:
       - WECHAT_SERVER_HOST=0.0.0.0
       - WECHAT_API_PROXY=${WECHAT_API_PROXY:-api.weixin.qq.com}
       - WECHAT_API_TIMEOUT=${WECHAT_API_TIMEOUT:-30}
-    command: python api/wechat_server.py
+    command: python main_server.py
     networks:
       - wechat_network
     healthcheck:

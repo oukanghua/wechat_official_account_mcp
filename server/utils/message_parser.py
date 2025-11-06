@@ -1,6 +1,6 @@
 import xml.etree.ElementTree as ET
 from typing import Dict, Any
-from models import WechatMessage
+from shared.models import WechatMessage
 import logging
 
 logger = logging.getLogger(__name__)

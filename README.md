@@ -44,7 +44,39 @@
 - 支持文本、图片、语音、链接、事件等多种消息类型
 - 支持明文和加密两种模式
 - 自动验证微信服务器签名
-- 可配置的消息处理器
+- **集成 Dify AI 支持**（可选）
+- **超时和重试机制**（5秒超时，自动重试）
+- **客服消息模式**（可选）
+- **交互等待模式**（可选）
+
+## 项目结构
+
+```
+wechat_official_account_mcp/
+├── mcp/                    # MCP 服务器功能（独立）
+│   ├── server.py          # MCP 服务器主文件
+│   └── tools/              # MCP 工具
+│       ├── auth.py         # 认证工具
+│       ├── media.py        # 素材管理工具
+│       ├── draft.py        # 草稿管理工具
+│       └── publish.py      # 发布工具
+│
+├── server/                 # 微信消息服务器功能（独立）
+│   ├── wechat_server.py    # 消息服务器主文件
+│   ├── custom_message.py   # 客服消息发送器
+│   ├── handlers/           # 消息处理器
+│   └── utils/              # 服务器专用工具
+│
+├── shared/                  # 共享代码
+│   ├── models.py           # 数据模型
+│   ├── config.py           # 配置管理
+│   ├── storage/            # 存储管理
+│   └── utils/              # 共享工具（微信 API 客户端等）
+│
+├── main_mcp.py             # MCP 服务器入口
+├── main_server.py          # 消息服务器入口
+└── requirements.txt        # 依赖列表
+```
 
 ## 安装
 
@@ -61,316 +93,207 @@ cd wechat_official_account_mcp
 pip install -r requirements.txt
 ```
 
-### 3. 配置环境变量（可选）
+### 3. 配置环境变量
 
 创建 `.env` 文件：
 
 ```env
-# 微信公众号配置（可选，也可通过 MCP 工具配置）
+# 微信公众号基础配置（必需）
 WECHAT_APP_ID=your_app_id
 WECHAT_APP_SECRET=your_app_secret
 WECHAT_TOKEN=your_token
-WECHAT_ENCODING_AES_KEY=your_encoding_aes_key
+WECHAT_ENCODING_AES_KEY=your_encoding_aes_key  # 可选
 
-# 服务器配置
+# 消息服务器配置（可选）
 WECHAT_SERVER_PORT=8000
 WECHAT_SERVER_HOST=0.0.0.0
-WECHAT_API_PROXY=api.weixin.qq.com
-WECHAT_API_TIMEOUT=30
-```
 
-## Docker 部署
+# 消息处理配置（可选）
+WECHAT_TIMEOUT_MESSAGE=内容生成耗时较长，请稍等...
+WECHAT_RETRY_WAIT_TIMEOUT_RATIO=0.7
+WECHAT_ENABLE_CUSTOM_MESSAGE=false
+WECHAT_CONTINUE_WAITING_MESSAGE=生成答复中，继续等待请回复1
+WECHAT_MAX_CONTINUE_COUNT=2
 
-> **注意**：如果在中国大陆地区遇到网络连接问题，请参考下面的"网络问题解决方案"部分。
-
-### 使用 Docker Compose（推荐）
-
-1. **创建环境变量文件**
-
-创建 `.env` 文件（或直接在 docker-compose.yml 中设置）：
-
-```env
-WECHAT_APP_ID=your_app_id
-WECHAT_APP_SECRET=your_app_secret
-WECHAT_TOKEN=your_token
-WECHAT_ENCODING_AES_KEY=your_encoding_aes_key
-WECHAT_SERVER_PORT=8000
-WECHAT_API_PROXY=api.weixin.qq.com
-WECHAT_API_TIMEOUT=30
-```
-
-2. **构建并启动服务**
-
-使用快速启动脚本（推荐）：
-
-**Linux/Mac:**
-```bash
-chmod +x docker-run.sh
-./docker-run.sh
-```
-
-**Windows:**
-```cmd
-docker-run.bat
-```
-
-或手动执行：
-
-```bash
-# 构建镜像（生产环境）
-docker-compose build
-
-# 启动服务
-docker-compose up -d
-
-# 查看日志
-docker-compose logs -f
-
-# 停止服务
-docker-compose down
-```
-
-**开发模式**（需要实时修改代码）：
-
-```bash
-# 使用开发配置（挂载代码目录）
-docker-compose -f docker-compose.dev.yml build
-docker-compose -f docker-compose.dev.yml up -d
-```
-
-3. **配置微信公众号**
-
-在微信公众平台配置服务器地址为：`http://your-domain:8000/wechat`
-
-### 使用 Docker 直接运行
-
-1. **构建镜像**
-
-```bash
-docker build -t wechat-official-account-mcp .
-```
-
-2. **运行容器**
-
-```bash
-# 运行消息接收服务器
-docker run -d \
-  --name wechat-server \
-  -p 8000:8000 \
-  -e WECHAT_APP_ID=your_app_id \
-  -e WECHAT_APP_SECRET=your_app_secret \
-  -e WECHAT_TOKEN=your_token \
-  -e WECHAT_ENCODING_AES_KEY=your_encoding_aes_key \
-  -v $(pwd)/data:/app/data \
-  wechat-official-account-mcp
-
-# 查看日志
-docker logs -f wechat-server
-```
-
-3. **运行 MCP 服务器**
-
-```bash
-# MCP 服务器通过 stdio 运行，通常不需要单独容器
-# 如果需要，可以这样运行：
-docker run -it \
-  --name wechat-mcp \
-  -v $(pwd)/data:/app/data \
-  -e WECHAT_APP_ID=your_app_id \
-  -e WECHAT_APP_SECRET=your_app_secret \
-  wechat-official-account-mcp \
-  python main.py
-```
-
-### Docker 环境变量
-
-| 变量名 | 说明 | 默认值 |
-|--------|------|--------|
-| `WECHAT_APP_ID` | 微信公众号 AppID | - |
-| `WECHAT_APP_SECRET` | 微信公众号 AppSecret | - |
-| `WECHAT_TOKEN` | 微信公众号 Token | - |
-| `WECHAT_ENCODING_AES_KEY` | 消息加密密钥 | - |
-| `WECHAT_SERVER_PORT` | 消息接收服务器端口 | 8000 |
-| `WECHAT_SERVER_HOST` | 消息接收服务器主机 | 0.0.0.0 |
-| `WECHAT_API_PROXY` | 微信 API 代理地址 | api.weixin.qq.com |
-| `WECHAT_API_TIMEOUT` | API 请求超时时间（秒） | 30 |
-
-### 网络问题解决方案
-
-如果遇到无法连接到 Docker Hub 的问题（常见于中国大陆地区），可以使用以下方法：
-
-#### 方法 1：配置 Docker 镜像加速器（推荐）
-
-1. **配置 Docker Desktop 镜像加速器**
-
-在 Docker Desktop 设置中添加镜像加速器：
-- 阿里云：`https://registry.cn-hangzhou.aliyuncs.com`
-- 腾讯云：`https://mirror.ccs.tencentyun.com`
-- 网易：`https://hub-mirror.c.163.com`
-
-2. **或使用国内优化的 Docker Compose 配置**
-
-```bash
-# 使用国内优化的配置
-docker-compose -f docker-compose.china.yml build
-docker-compose -f docker-compose.china.yml up -d
-```
-
-#### 方法 2：使用已存在的本地镜像
-
-```bash
-# 先手动拉取镜像（如果网络允许）
-docker pull python:3.12-slim
-
-# 然后再构建
-docker-compose build
-```
-
-#### 方法 3：使用代理
-
-如果已有代理，可以配置 Docker 使用代理：
-
-```bash
-# 设置代理环境变量
-export HTTP_PROXY=http://your-proxy:port
-export HTTPS_PROXY=http://your-proxy:port
-docker-compose build
+# Dify AI 集成（可选）
+DIFY_API_KEY=your_dify_api_key
+DIFY_APP_ID=your_dify_app_id
+DIFY_BASE_URL=https://api.dify.ai/v1
 ```
 
 ## 使用
 
-### 作为 MCP 服务器使用
+### 启动 MCP 服务器
 
-#### 1. 配置 MCP 客户端
+MCP 服务器通过 stdio 与客户端通信：
 
-**Windows 用户**（Claude Desktop 配置路径：`%APPDATA%\Claude\claude_desktop_config.json`）：
+```bash
+python main_mcp.py
+```
 
+### 启动消息服务器
+
+消息服务器提供 HTTP 接口接收微信消息：
+
+```bash
+python main_server.py
+```
+
+默认端口：8000
+
+### 配置 MCP 客户端
+
+#### Claude Desktop
+
+编辑配置文件（Windows）：
+```
+%APPDATA%\Claude\claude_desktop_config.json
+```
+
+添加配置：
 ```json
 {
   "mcpServers": {
     "wechat-official-account": {
       "command": "python",
-      "args": [
-        "C:\\Users\\maluw\\Code\\MCP\\wechat_official_account_mcp\\main.py"
-      ],
+      "args": ["C:\\path\\to\\wechat_official_account_mcp\\main_mcp.py"],
       "env": {
-        "WECHAT_APP_ID": "wx5d3e84e3e5720b58",
-        "WECHAT_APP_SECRET": "your_app_secret_here"
+        "WECHAT_APP_ID": "your_app_id",
+        "WECHAT_APP_SECRET": "your_app_secret"
       }
     }
   }
 }
 ```
 
-**Linux/Mac 用户**：
+#### Cursor
 
-```json
-{
-  "mcpServers": {
-    "wechat-official-account": {
-      "command": "python",
-      "args": [
-        "/path/to/wechat_official_account_mcp/main.py"
-      ]
-    }
-  }
-}
-```
+编辑设置文件，添加 MCP 服务器配置。
 
-**注意**：
-- 将路径替换为你的实际项目路径
-- 如果已配置 `.env` 文件，可以省略 `env` 部分
-- 详细配置说明请参考 `MCP_SETUP.md`
+## Docker 部署
 
-#### 2. 使用工具
-
-在 AI 对话中，可以调用以下工具：
-
-- `wechat_auth` - 配置微信公众号信息
-- `wechat_media_upload` - 上传临时素材
-- `wechat_upload_img` - 上传图文消息图片
-- `wechat_permanent_media` - 管理永久素材
-- `wechat_draft` - 管理草稿
-- `wechat_publish` - 发布文章
-
-### 作为消息接收服务器使用
-
-#### 1. 启动服务器
+### 构建镜像
 
 ```bash
-python api/wechat_server.py
+docker build -t wechat-mcp .
 ```
 
-或者使用环境变量配置端口：
+### 运行容器
 
 ```bash
-WECHAT_SERVER_PORT=8000 python api/wechat_server.py
+docker-compose up -d
 ```
 
-#### 2. 配置微信公众号
+## 消息服务器特性
 
-1. 登录微信公众平台 (https://mp.weixin.qq.com/)
-2. 进入"设置与开发" -> "基本配置"
-3. 在"服务器配置"下：
-   - 服务器地址(URL): `http://your-domain:8000/wechat`
-   - Token: 与配置中的 `WECHAT_TOKEN` 相同
-   - 消息加解密方式: 根据是否配置 `WECHAT_ENCODING_AES_KEY` 选择明文或安全模式
-   - 如果使用安全模式，EncodingAESKey 要与配置中的相同
+### 超时处理机制
 
-## 项目结构
+- **5 秒超时**: 符合微信要求，如果 AI 处理在 5 秒内完成，直接返回结果
+- **自动重试**: 超时后返回 HTTP 500，触发微信重试（最多 3 次）
+- **灵活配置**: 可配置重试等待超时系数
 
+### 响应模式
+
+#### 1. 客服消息模式
+
+启用方式：
+```env
+WECHAT_ENABLE_CUSTOM_MESSAGE=true
 ```
-wechat_official_account_mcp/
-├── main.py                 # MCP 服务器主文件
-├── api/
-│   └── wechat_server.py    # 微信公众号消息接收服务器
-├── tools/                  # MCP 工具实现
-│   ├── auth.py            # 认证工具
-│   ├── media.py           # 素材管理工具
-│   ├── draft.py           # 草稿管理工具
-│   └── publish.py         # 发布工具
-├── storage/                # 存储管理
-│   ├── auth_manager.py    # 认证管理器
-│   └── storage_manager.py  # 存储管理器
-├── handlers/               # 消息处理器
-│   ├── text.py            # 文本消息处理器
-│   ├── image.py           # 图片消息处理器
-│   ├── voice.py           # 语音消息处理器
-│   ├── link.py            # 链接消息处理器
-│   ├── event.py           # 事件处理器
-│   └── unsupported.py     # 不支持的消息处理器
-├── utils/                  # 工具类
-│   ├── wechat_api_client.py    # 微信 API 客户端
-│   ├── wechat_crypto.py        # 消息加解密工具
-│   └── message_parser.py       # 消息解析工具
-├── models.py               # 数据模型
-├── config.py              # 配置管理
-└── requirements.txt        # 依赖列表
+
+工作流程：
+1. AI 处理超时时，先返回超时提示消息
+2. 处理完成后通过客服消息 API 发送完整响应
+
+#### 2. 交互等待模式
+
+启用方式：
+```env
+WECHAT_ENABLE_CUSTOM_MESSAGE=false
+WECHAT_CONTINUE_WAITING_MESSAGE=生成答复中，继续等待请回复1
+WECHAT_MAX_CONTINUE_COUNT=2
 ```
+
+工作流程：
+1. AI 处理超时时，提示用户回复"1"继续等待
+2. 用户回复"1"后继续等待 AI 处理
+3. 最多等待 N 次（可配置）
+
+### Dify AI 集成
+
+配置 Dify API 后，消息会自动调用 AI 处理：
+
+```env
+DIFY_API_KEY=your_dify_api_key
+DIFY_APP_ID=your_dify_app_id
+```
+
+如果不配置，消息会返回默认回复。
+
+## 常见问题
+
+### 1. MCP 服务器启动失败
+
+**原因**: Python 路径或依赖问题
+
+**解决**:
+- 检查 Python 版本（推荐 3.8+）
+- 确保所有依赖已安装：`pip install -r requirements.txt`
+- 检查 `.env` 文件配置是否正确
+
+### 2. 消息服务器验证失败
+
+**原因**: Token 不匹配或 URL 不正确
+
+**解决**:
+- 检查 `.env` 文件中的 `WECHAT_TOKEN` 是否与微信公众号平台一致
+- 检查服务器 URL 是否正确
+- 确保服务器可以访问
+
+### 3. 消息解密失败
+
+**原因**: EncodingAESKey 配置错误
+
+**解决**:
+- 检查 `.env` 文件中的 `WECHAT_ENCODING_AES_KEY` 是否与微信公众号平台一致
+- 确保使用正确的加密模式
+
+### 4. AI 处理超时
+
+**原因**: AI 处理时间过长
+
+**解决**:
+- 启用客服消息模式：`WECHAT_ENABLE_CUSTOM_MESSAGE=true`
+- 或启用交互等待模式
+- 优化 Dify 应用的处理速度
 
 ## 开发
 
-### 运行测试
+### 项目结构说明
 
-```bash
-python -m pytest tests/
-```
+- **mcp/**: MCP 服务器功能，提供工具接口
+- **server/**: 消息服务器功能，接收和处理微信消息
+- **shared/**: 两个功能模块共用的代码
 
-### 代码检查
+### 添加新工具
 
-```bash
-flake8 .
-```
+1. 在 `mcp/tools/` 目录下创建新工具文件
+2. 实现 `register_*_tools()` 函数注册工具
+3. 实现 `handle_*_tool()` 函数处理工具调用
+4. 在 `mcp/server.py` 中注册新工具
+
+### 添加新消息处理器
+
+1. 在 `server/handlers/` 目录下创建新处理器文件
+2. 继承 `MessageHandler` 基类
+3. 实现 `handle_message()` 方法
+4. 在 `server/wechat_server.py` 中注册新处理器
 
 ## 许可证
 
 MIT License
 
-## 贡献
-
-欢迎提交 Issue 和 Pull Request！
-
 ## 致谢
 
 - [dify_wechat_plugin](https://github.com/bikeread/dify_wechat_plugin) - 微信公众号 Dify 插件
-- [wechat-official-account-mcp](https://github.com/xwang152-jack/wechat-official-account-mcp) - 微信公众号 MCP 服务（TypeScript 版本）
+- [wechat-official-account-mcp](https://github.com/xwang152-jack/wechat-official-account-mcp) - 微信公众号 MCP 服务

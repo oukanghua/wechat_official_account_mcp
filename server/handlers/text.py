@@ -2,7 +2,7 @@ import logging
 import traceback
 from typing import Dict, Any
 from .base import MessageHandler
-from models import WechatMessage
+from shared.models import WechatMessage
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +80,7 @@ class TextMessageHandler(MessageHandler):
             
             # 尝试使用 Dify AI（如果配置了）
             try:
-                from utils.dify_api_client import get_dify_client
+                from server.utils.dify_api_client import get_dify_client
                 dify_client = get_dify_client()
                 
                 if dify_client:

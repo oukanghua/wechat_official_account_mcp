@@ -30,18 +30,18 @@ if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
 # 导入消息处理模块
-from handlers.text import TextMessageHandler
-from handlers.image import ImageMessageHandler
-from handlers.voice import VoiceMessageHandler
-from handlers.link import LinkMessageHandler
-from handlers.event import EventMessageHandler
-from handlers.unsupported import UnsupportedMessageHandler
-from utils.message_parser import MessageParser
-from utils.wechat_crypto import WechatMessageCrypto
-from storage.auth_manager import AuthManager
-from utils.retry_tracker import MessageStatusTracker
-from utils.waiting_manager import UserWaitingManager
-from api.custom_message import WechatCustomMessageSender
+from server.handlers.text import TextMessageHandler
+from server.handlers.image import ImageMessageHandler
+from server.handlers.voice import VoiceMessageHandler
+from server.handlers.link import LinkMessageHandler
+from server.handlers.event import EventMessageHandler
+from server.handlers.unsupported import UnsupportedMessageHandler
+from server.utils.message_parser import MessageParser
+from shared.utils.wechat_crypto import WechatMessageCrypto
+from shared.storage.auth_manager import AuthManager
+from server.utils.retry_tracker import MessageStatusTracker
+from server.utils.waiting_manager import UserWaitingManager
+from server.custom_message import WechatCustomMessageSender
 
 # 初始化认证管理器
 auth_manager = AuthManager()

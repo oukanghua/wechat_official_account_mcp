@@ -96,7 +96,7 @@ case $choice in
           -e WECHAT_APP_ID=${WECHAT_APP_ID:-} \
           -e WECHAT_APP_SECRET=${WECHAT_APP_SECRET:-} \
           wechat-official-account-mcp \
-          python main.py
+          python main_mcp.py
         ;;
     8)
         echo -e "${GREEN}使用国内镜像源构建...${NC}"

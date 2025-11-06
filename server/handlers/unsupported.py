@@ -1,7 +1,7 @@
 import logging
 from typing import Optional, Any
 from .base import MessageHandler
-from models import WechatMessage
+from shared.models import WechatMessage
 
 logger = logging.getLogger(__name__)
 
