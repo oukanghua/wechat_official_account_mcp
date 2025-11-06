@@ -196,8 +196,7 @@ def wechat_post():
         config = auth_manager.get_config()
         if not config:
             logger.error("未配置微信公众号信息")
-            # 根据微信规范，5秒内必须回复，否则返回空串或"success"
-            return Response('success', status=200)
+            return Response('未配置', status=500)
         
         # 获取配置项
         temp_response_message = _get_config_value('WECHAT_TIMEOUT_MESSAGE', DEFAULT_TEMP_RESPONSE)
@@ -235,8 +234,7 @@ def wechat_post():
         
         except Exception as e:
             logger.error(f"消息解密失败: {str(e)}")
-            # 根据微信规范，5秒内必须回复，否则返回空串或"success"
-            return Response('success', status=200)
+            return Response('解密失败', status=400)
         
         # 解析消息
         message = MessageParser.parse_xml(decrypted_xml)
@@ -294,8 +292,7 @@ def wechat_post():
     
     except Exception as e:
         logger.error(f"处理消息失败: {str(e)}", exc_info=True)
-        # 根据微信规范，5秒内必须回复，否则返回空串或"success"
-        return Response('success', status=200)  # 返回success避免微信重试
+        return Response('', status=200)  # 返回空响应避免微信重试
 
 
 def _handle_first_request(message, message_status, config, handler, enable_custom_message, 
@@ -380,9 +377,7 @@ def _handle_first_request(message, message_status, config, handler, enable_custo
             )
             async_thread.start()
         
-        # 根据微信规范，5秒内必须回复，否则返回空串或"success"
-        # 在超时情况下返回success，让微信服务器发起重试
-        return Response("success", status=200)
+        return Response("", status=500)
 
 
 def _handle_retry(message, message_status, retry_count, temp_message, enable_custom_message,
@@ -410,8 +405,7 @@ def _handle_retry(message, message_status, retry_count, temp_message, enable_cus
         response_content = message_status.get('result', '') or "抱歉，处理结果为空"
         
         if not MessageStatusTracker.mark_result_returned(message):
-            # 根据微信规范，5秒内必须回复，否则返回空串或"success"
-            return Response('success', status=200)
+            return Response("", status=200)
         
         message_status['skip_custom_message'] = True
         retry_completion_event = message_status.get('retry_completion_event')
@@ -434,9 +428,8 @@ def _handle_retry(message, message_status, retry_count, temp_message, enable_cus
             return Response(response_xml, mimetype='application/xml')
     
     # 处理未完成，继续重试策略
-    if retry_count < 2:  # 前两次重试返回 success 触发微信继续重试
-        # 根据微信规范，5秒内必须回复，否则返回空串或"success"
-        return Response("success", status=200)
+    if retry_count < 2:  # 前两次重试返回 500 状态码
+        return Response("", status=500)
     else:  # 最后一次重试
         if enable_custom_message:
             # 客服消息模式
@@ -488,8 +481,7 @@ def _handle_continue_waiting_retry(message, message_status, retry_count,
     if not waiting_info:
         logger.warning("继续等待消息缺少原始等待信息")
         UserWaitingManager.clear_user_waiting(message.from_user)
-        # 根据微信规范，5秒内必须回复，否则返回空串或"success"
-        return Response("success", status=200)
+        return Response("", status=500)
     
     # 获取原始 AI 任务的完成事件
     original_status = waiting_info['original_status']
@@ -546,10 +538,9 @@ def _handle_continue_waiting_retry(message, message_status, retry_count,
             return Response(response_xml, mimetype='application/xml')
     
     # AI 任务仍未完成
-    if retry_count < 2:  # 前两次重试返回 success 触发微信继续重试
-        logger.debug(f"继续等待重试: 第{retry_count}次，返回 success 触发下次重试")
-        # 根据微信规范，5秒内必须回复，否则返回空串或"success"
-        return Response("success", status=200)
+    if retry_count < 2:  # 前两次重试返回 500 状态码，触发微信继续重试
+        logger.debug(f"继续等待重试: 第{retry_count}次，返回 500 触发下次重试")
+        return Response("", status=500)
     else:  # 最后一次重试
         # 增加 continue_count 并判断是否达到限制
         UserWaitingManager.handle_continue_request(message.from_user)
