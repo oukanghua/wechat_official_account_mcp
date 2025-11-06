@@ -1,8 +1,9 @@
 # Docker
-Dockerfile*
+# Dockerfile 和 docker-compose.yml 需要提交到 git，不要忽略
+# Dockerfile*
 .dockerignore
 .docker/
-*.dockerfile
+# *.dockerfile
 
 # 环境变量
 .env
@@ -27,10 +28,7 @@ ENV/
 # 数据库文件
 *.db
 *.sqlite3
-<<<<<<< HEAD
 data/
-=======
->>>>>>> 507a95a82cf2fa34124ff2107e104f93ca183ac4
 
 # 日志文件
 *.log
