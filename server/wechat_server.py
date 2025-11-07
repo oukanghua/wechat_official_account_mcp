@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 微信公众号消息接收服务器
 独立运行，用于接收和处理微信公众号消息
@@ -132,7 +133,7 @@ def verify_signature(signature: str, timestamp: str, nonce: str, echostr: str, t
     return ''
 
 
-@app.route('/wechat', methods=['GET'])
+@app.route('/wx', methods=['GET'])
 def wechat_get():
     """处理微信服务器验证请求"""
     try:
@@ -149,12 +150,12 @@ def wechat_get():
         config = auth_manager.get_config()
         if not config:
             logger.error("未配置微信公众号信息")
-            return Response('未配置', status=500)
+            return "success"
         
         token = config.get('token', '')
         if not token:
             logger.error("未配置 token")
-            return Response('未配置 token', status=500)
+            return "success"
         
         logger.debug(f"使用 Token: {token[:10]}...")
         
@@ -163,7 +164,7 @@ def wechat_get():
         
         if result:
             logger.info(f"微信服务器验证成功，返回 echostr: {echostr}")
-            return Response(result, status=200, mimetype='text/plain')
+            return echostr
         else:
             # 计算期望的签名用于调试
             import hashlib
@@ -173,11 +174,11 @@ def wechat_get():
             expected_hash = hashlib.sha1(temp_str.encode('utf-8')).hexdigest()
             logger.warning(f"微信服务器验证失败: 期望签名={expected_hash}, 实际签名={signature}")
             logger.warning(f"验证参数: token={token[:10]}..., timestamp={timestamp}, nonce={nonce}")
-            return Response('', status=403)
+            return "success"
     
     except Exception as e:
         logger.error(f"处理验证请求失败: {str(e)}", exc_info=True)
-        return Response('服务器错误', status=500)
+        return "success"
 
 
 def _get_config_value(key: str, default):
@@ -188,7 +189,7 @@ def _get_config_value(key: str, default):
     return default
 
 
-@app.route('/wechat', methods=['POST'])
+@app.route('/wx', methods=['POST'])
 def wechat_post():
     """处理微信消息（带超时和重试机制）"""
     try:
@@ -196,7 +197,7 @@ def wechat_post():
         config = auth_manager.get_config()
         if not config:
             logger.error("未配置微信公众号信息")
-            return Response('未配置', status=500)
+            return "success"
         
         # 获取配置项
         temp_response_message = _get_config_value('WECHAT_TIMEOUT_MESSAGE', DEFAULT_TEMP_RESPONSE)
@@ -234,7 +235,7 @@ def wechat_post():
         
         except Exception as e:
             logger.error(f"消息解密失败: {str(e)}")
-            return Response('解密失败', status=400)
+            return "success"
         
         # 解析消息
         message = MessageParser.parse_xml(decrypted_xml)
@@ -292,7 +293,7 @@ def wechat_post():
     
     except Exception as e:
         logger.error(f"处理消息失败: {str(e)}", exc_info=True)
-        return Response('', status=200)  # 返回空响应避免微信重试
+        return "success"  # 根据微信规范，发生异常时应返回"success"
 
 
 def _handle_first_request(message, message_status, config, handler, enable_custom_message, 

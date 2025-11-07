@@ -8,17 +8,17 @@ WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
-# 安装系统依赖（添加重试机制处理网络问题）
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends --fix-missing \
-    gcc \
-    python3-dev \
-    curl || \
-    (apt-get update && apt-get install -y --no-install-recommends --fix-missing \
-     gcc \
-     python3-dev \
-     curl) && \
-    rm -rf /var/lib/apt/lists/*
+# 配置pip使用国内镜像源以加速下载
+RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple \
+    && pip config set install.trusted-host pypi.tuna.tsinghua.edu.cn
+
+# 更新包列表并安装系统依赖
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends --fix-missing \
+       gcc \
+       python3-dev \
+       curl \
+    && rm -rf /var/lib/apt/lists/*
 
 # 复制requirements.txt文件
 COPY requirements.txt .
