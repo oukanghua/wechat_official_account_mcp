@@ -22,7 +22,7 @@ RUN apt-get update \
 
 # 安装Python依赖
 RUN pip install --upgrade pip && \
-    pip install --no-cache-dir mcp requests python-dotenv && \
+    pip install --no-cache-dir mcp requests python-dotenv aiohttp && \
     python -c "import mcp; print('MCP installed')" || echo "Warning: MCP package may not be installed"
 
 # 复制项目文件
