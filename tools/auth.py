@@ -29,14 +29,6 @@ def register_auth_tools() -> List[Tool]:
                     "appSecret": {
                         "type": "string",
                         "description": "微信公众号 AppSecret（配置时必需）"
-                    },
-                    "token": {
-                        "type": "string",
-                        "description": "微信公众号 Token（可选，用于消息验证）"
-                    },
-                    "encodingAESKey": {
-                        "type": "string",
-                        "description": "微信公众号 EncodingAESKey（可选，用于消息加密）"
                     }
                 },
                 "required": ["action"]
@@ -62,20 +54,16 @@ async def handle_auth_tool(arguments: Dict[str, Any], auth_manager) -> str:
         if action == 'configure':
             app_id = arguments.get('appId')
             app_secret = arguments.get('appSecret')
-            token = arguments.get('token', '')
-            encoding_aes_key = arguments.get('encodingAESKey', '')
             
             if not app_id or not app_secret:
                 return "错误：配置时 appId 和 appSecret 是必需的"
             
             auth_manager.set_config({
                 'appId': app_id,
-                'appSecret': app_secret,
-                'token': token,
-                'encodingAESKey': encoding_aes_key
+                'appSecret': app_secret
             })
             
-            return f"微信公众号配置已成功保存\n- AppID: {app_id}\n- Token: {token or '未设置'}\n- EncodingAESKey: {encoding_aes_key or '未设置'}"
+            return f"微信公众号配置已成功保存\n- AppID: {app_id}"
         
         elif action == 'get_token':
             token_info = await auth_manager.get_access_token()
@@ -96,7 +84,7 @@ async def handle_auth_tool(arguments: Dict[str, Any], auth_manager) -> str:
             if not config:
                 return "尚未配置微信公众号信息，请先使用 configure 操作进行配置。"
             
-            return f"当前微信公众号配置:\n- AppID: {config['app_id']}\n- AppSecret: {config['app_secret'][:8]}...\n- Token: {config['token'] or '未设置'}\n- EncodingAESKey: {config['encoding_aes_key'] or '未设置'}"
+            return f"当前微信公众号配置:\n- AppID: {config['app_id']}\n- AppSecret: {config['app_secret'][:8]}..."
         
         else:
             return f"未知操作: {action}"

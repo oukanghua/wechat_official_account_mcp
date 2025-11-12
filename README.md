@@ -1,13 +1,13 @@
 # 微信公众号 MCP 服务器
 
-一个功能完整的微信公众号管理 MCP 服务器，保留了原项目中的 MCP 功能部分。
+一个功能完整的微信公众号管理 MCP 服务器，提供认证、素材管理、草稿和发布等完整的公众号管理功能。
 
 ## 功能特性
 
 ### MCP 工具
 
 1. **认证管理** (`wechat_auth`)
-   - 配置微信公众号 AppID、AppSecret、Token、EncodingAESKey
+   - 配置微信公众号 AppID、AppSecret
    - 获取和刷新 Access Token
    - 查看当前配置
 
@@ -41,20 +41,16 @@
 
 ```
 wechat_official_account_mcp/
-├── mcp/                    # MCP 服务器功能（独立）
-│   ├── server.py          # MCP 服务器主文件
-│   └── tools/              # MCP 工具
-│       ├── auth.py         # 认证工具
-│       ├── media.py        # 素材管理工具
-│       ├── draft.py        # 草稿管理工具
-│       └── publish.py      # 发布工具
+├── main.py                 # MCP 服务器主文件
+├── main_mcp.py            # MCP 服务器入口（可选）
+├── tools/                  # MCP 工具
+│   ├── auth.py            # 认证工具
+│   ├── media.py           # 素材管理工具
+│   ├── draft.py           # 草稿管理工具
+│   └── publish.py         # 发布工具
 │
-├── shared/                 # 共享代码
-│   ├── storage/            # 存储管理
-│   └── utils/              # 共享工具（微信 API 客户端等）
-│
-├── main_mcp.py             # MCP 服务器入口
-└── requirements.txt        # 依赖列表
+├── Dockerfile             # Docker 构建文件
+└── docker-compose.yml     # Docker Compose 配置
 ```
 
 ## 安装
@@ -69,7 +65,7 @@ cd wechat_official_account_mcp
 ### 2. 安装依赖
 
 ```bash
-pip install -r requirements.txt
+pip install mcp requests python-dotenv
 ```
 
 ### 3. 配置环境变量
@@ -87,6 +83,12 @@ WECHAT_APP_SECRET=your_app_secret
 ### 启动 MCP 服务器
 
 MCP 服务器通过 stdio 与客户端通信：
+
+```bash
+python main.py
+```
+
+或者使用入口文件：
 
 ```bash
 python main_mcp.py
@@ -107,7 +109,7 @@ python main_mcp.py
   "mcpServers": {
     "wechat-official-account": {
       "command": "python",
-      "args": ["C:\\path\\to\\wechat_official_account_mcp\\main_mcp.py"],
+      "args": ["C:\\path\\to\\wechat_official_account_mcp\\main.py"],
       "env": {
         "WECHAT_APP_ID": "your_app_id",
         "WECHAT_APP_SECRET": "your_app_secret"

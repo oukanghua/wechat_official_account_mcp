@@ -1,14 +1,11 @@
-# Docker Compose 配置
+# Docker Compose 配置 - MCP 服务器
 # 
 # 使用方式：
-# - 默认启动消息服务器: docker compose up -d
-# - 仅启动 MCP 服务器: docker compose --profile mcp up -d
-# - 同时启动两个服务: docker compose --profile mcp up -d
+# docker compose up -d
 # 
 # 配置说明：
-# - 在 .env 文件中配置 WECHAT_SERVER_PORT 和 NETWORK_MODE
-# - NETWORK_MODE=host 用于 80/443 端口（生产环境）
-# - NETWORK_MODE=bridge 用于端口映射（开发环境）
+# - 在 .env 文件中配置微信公众号相关环境变量
+# - MCP 服务器通过 stdio 与客户端通信，不需要暴露端口
 
 services:
   # MCP 服务器
@@ -18,70 +15,11 @@ services:
       dockerfile: Dockerfile
     container_name: wechat_mcp_server
     restart: unless-stopped
-    profiles:
-      - mcp
     volumes:
       - ./data:/app/data  # 持久化数据（SQLite 数据库）
     environment:
       - WECHAT_APP_ID=${WECHAT_APP_ID}
       - WECHAT_APP_SECRET=${WECHAT_APP_SECRET}
-      - WECHAT_TOKEN=${WECHAT_TOKEN}
-      - WECHAT_ENCODING_AES_KEY=${WECHAT_ENCODING_AES_KEY}
-    command: python main_mcp.py
+    command: python main.py
     stdin_open: true
     tty: true
-    networks:
-      - wechat_network
-
-  # 微信公众号消息服务器（默认启动，可通过 --profile server 单独启动）
-  wechat-server:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: wechat_message_server
-    restart: unless-stopped
-    # 不设置 profiles，默认启动；如果设置了 profiles，则只会在指定 profile 时启动
-    # profiles:
-    #   - server
-    # 根据 NETWORK_MODE 环境变量选择网络模式
-    # 如果设置为 "host"，则使用主机网络（80端口需要）
-    # 如果设置为 "bridge"（默认），则使用端口映射
-    network_mode: ${NETWORK_MODE:-bridge}
-    ports:
-      # bridge 模式下端口映射（host 模式下无效）
-      - "${WECHAT_SERVER_PORT:-8000}:${WECHAT_SERVER_PORT:-8000}"
-    volumes:
-      - ./data:/app/data  # 持久化数据（SQLite 数据库）
-    environment:
-      - WECHAT_APP_ID=${WECHAT_APP_ID}
-      - WECHAT_APP_SECRET=${WECHAT_APP_SECRET}
-      - WECHAT_TOKEN=${WECHAT_TOKEN}
-      - WECHAT_ENCODING_AES_KEY=${WECHAT_ENCODING_AES_KEY}
-      - WECHAT_SERVER_PORT=${WECHAT_SERVER_PORT:-8000}
-      - WECHAT_SERVER_HOST=${WECHAT_SERVER_HOST:-0.0.0.0}
-      - WECHAT_API_PROXY=${WECHAT_API_PROXY:-api.weixin.qq.com}
-      - WECHAT_API_TIMEOUT=${WECHAT_API_TIMEOUT:-30}
-      - WECHAT_TIMEOUT_MESSAGE=${WECHAT_TIMEOUT_MESSAGE:-内容生成耗时较长，请稍等...}
-      - WECHAT_RETRY_WAIT_TIMEOUT_RATIO=${WECHAT_RETRY_WAIT_TIMEOUT_RATIO:-0.7}
-      - WECHAT_ENABLE_CUSTOM_MESSAGE=${WECHAT_ENABLE_CUSTOM_MESSAGE:-false}
-      - WECHAT_SSL_CERT=${WECHAT_SSL_CERT:-}
-      - WECHAT_SSL_KEY=${WECHAT_SSL_KEY:-}
-      - DIFY_API_KEY=${DIFY_API_KEY:-}
-      - DIFY_APP_ID=${DIFY_APP_ID:-}
-    command: python main_server.py
-    healthcheck:
-      test: ["CMD-SHELL", "python -c 'import requests; requests.get(\"http://localhost:${WECHAT_SERVER_PORT:-8000}/wechat\", params={\"signature\":\"test\",\"timestamp\":\"123\",\"nonce\":\"test\",\"echostr\":\"test\"}, timeout=5)' || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
-    # 注意：当使用 network_mode: host 时，不能同时使用 networks 配置
-    # bridge 模式下 Docker Compose 会自动处理网络连接
-
-networks:
-  wechat_network:
-    driver: bridge
-
-volumes:
-  wechat_data:
-    driver: local
