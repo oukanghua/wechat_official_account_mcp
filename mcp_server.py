@@ -21,13 +21,13 @@ logger = logging.getLogger(__name__)
 try:
     from mcp.server import Server
     from mcp.server.stdio import stdio_server
-    from mcp.types import Tool, TextContent
+    from mcp.types import Tool, TextContent, Resource
 except ImportError:
     # 如果 MCP SDK 不可用，尝试使用替代方案
     try:
         from mcp import Server
         from mcp.stdio import stdio_server
-        from mcp import Tool, TextContent
+        from mcp import Tool, TextContent, Resource
     except ImportError:
         logger.error("无法导入 MCP SDK，请安装: pip install mcp")
         sys.exit(1)
@@ -49,6 +49,7 @@ async def list_tools() -> list[Tool]:
         from tools.media import register_media_tools
         from tools.draft import register_draft_tools
         from tools.publish import register_publish_tools
+        from tools.template import register_template_tools
         
         tools = []
         
@@ -64,10 +65,56 @@ async def list_tools() -> list[Tool]:
         # 注册发布工具
         tools.extend(register_publish_tools())
         
+        # 注册模板工具
+        tools.extend(register_template_tools())
+        
         return tools
     except Exception as e:
         logger.error(f"注册工具失败: {e}", exc_info=True)
         return []
+
+
+@server.list_resources()
+async def list_resources() -> list[Resource]:
+    """列出所有可用的资源"""
+    try:
+        from tools.template import load_template
+        
+        # 检查模板文件是否存在
+        script_dir = Path(__file__).parent
+        template_path = script_dir / "templates" / "phub_template.html"
+        
+        if template_path.exists():
+            return [
+                Resource(
+                    uri="template://phub_template",
+                    name="P站样式模板",
+                    description="P站（Pornhub）样式的公众号文章HTML模板。当用户说'使用p站模板'或'使用phub模板'时，可以使用此模板生成符合P站样式的HTML文章。",
+                    mimeType="text/html"
+                )
+            ]
+        return []
+    except Exception as e:
+        logger.error(f"列出资源失败: {e}", exc_info=True)
+        return []
+
+
+@server.read_resource()
+async def read_resource(uri: str) -> list[TextContent]:
+    """读取资源内容"""
+    try:
+        if uri == "template://phub_template":
+            from tools.template import load_template
+            template = load_template("phub_template.html")
+            if template:
+                return [TextContent(type="text", text=template)]
+            else:
+                return [TextContent(type="text", text="错误：无法加载模板文件")]
+        else:
+            return [TextContent(type="text", text=f"未知资源: {uri}")]
+    except Exception as e:
+        logger.error(f"读取资源失败: {e}", exc_info=True)
+        return [TextContent(type="text", text=f"读取资源失败: {str(e)}")]
 
 
 @server.call_tool()
@@ -87,6 +134,12 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
         if name == "wechat_auth":
             from tools.auth import handle_auth_tool
             result = await handle_auth_tool(arguments, auth_manager)
+            return [TextContent(type="text", text=result)]
+        
+        # 模板工具（不需要API客户端）
+        elif name == "wechat_template":
+            from tools.template import handle_template_tool
+            result = await handle_template_tool(arguments)
             return [TextContent(type="text", text=result)]
         
         # 需要 API 客户端的工具

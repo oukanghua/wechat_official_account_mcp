@@ -328,22 +328,31 @@ async def _handle_permanent_media_add(
         if not title:
             return "错误：上传视频素材时 title 是必需的"
     
-    file_content, _ = _read_file_content(
+    file_content, filename = _read_file_content(
         arguments.get('filePath'),
         arguments.get('fileData')
     )
+    
+    # 如果没有从文件路径获取到文件名，尝试从参数获取
+    if not filename:
+        filename = arguments.get('fileName')
+        # 如果还是没有，从filePath提取
+        if not filename and arguments.get('filePath'):
+            filename = os.path.basename(arguments.get('filePath'))
     
     if media_type == 'video':
         result = await api_client.upload_permanent_media(
             media_type=media_type,
             file_content=file_content,
             title=arguments.get('title'),
-            introduction=arguments.get('introduction')
+            introduction=arguments.get('introduction'),
+            filename=filename
         )
     else:
         result = await api_client.upload_permanent_media(
             media_type=media_type,
-            file_content=file_content
+            file_content=file_content,
+            filename=filename
         )
     
     storage_manager.save_media({

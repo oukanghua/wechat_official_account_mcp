@@ -16,7 +16,10 @@ BASE_URL = "https://api.weixin.qq.com"
 MAX_IMAGE_SIZE = 1024 * 1024  # 1MB
 JPEG_HEADER = bytes([0xFF, 0xD8, 0xFF])
 PNG_HEADER = bytes([0x89, 0x50, 0x4E, 0x47])
-SUPPORTED_IMAGE_FORMATS = ['jpg', 'jpeg', 'png']
+GIF_HEADER = b'GIF89a'  # GIF89a格式
+GIF_HEADER_87 = b'GIF87a'  # GIF87a格式
+BMP_HEADER = b'BM'  # BMP格式
+SUPPORTED_IMAGE_FORMATS = ['jpg', 'jpeg', 'png', 'gif', 'bmp']
 
 
 class WechatApiError(Exception):
@@ -177,6 +180,9 @@ class WechatApiClient:
         """
         验证图片格式并返回扩展名
         
+        支持的格式：JPG/JPEG, PNG, GIF, BMP
+        注意：微信公众号不支持SVG格式
+        
         Args:
             file_content: 文件内容
             filename: 文件名（可选）
@@ -193,18 +199,36 @@ class WechatApiClient:
         # 检查文件头
         is_jpeg = file_content[:3] == JPEG_HEADER
         is_png = file_content[:4] == PNG_HEADER
+        is_gif = file_content[:6] == GIF_HEADER or file_content[:6] == GIF_HEADER_87
+        is_bmp = file_content[:2] == BMP_HEADER
         
         if is_jpeg:
             return 'jpg'
         elif is_png:
             return 'png'
+        elif is_gif:
+            return 'gif'
+        elif is_bmp:
+            return 'bmp'
         elif filename:
             ext = filename.lower().split('.')[-1]
+            # 检查是否为SVG（明确拒绝）
+            if ext == 'svg':
+                raise ValueError(
+                    "SVG格式不支持。微信公众号仅支持 JPG/JPEG、PNG、GIF、BMP 格式。"
+                    "请将SVG转换为PNG或JPG格式后再上传。"
+                )
             if ext in SUPPORTED_IMAGE_FORMATS:
                 return ext
-            raise ValueError(f"不支持的图片格式: {ext}，仅支持 {', '.join(SUPPORTED_IMAGE_FORMATS)} 格式")
+            raise ValueError(
+                f"不支持的图片格式: {ext}，仅支持 {', '.join(SUPPORTED_IMAGE_FORMATS)} 格式。"
+                "注意：SVG格式不支持，请转换为PNG或JPG格式。"
+            )
         else:
-            raise ValueError(f"无法识别图片格式，仅支持 {', '.join(SUPPORTED_IMAGE_FORMATS)} 格式")
+            raise ValueError(
+                f"无法识别图片格式，仅支持 {', '.join(SUPPORTED_IMAGE_FORMATS)} 格式。"
+                "注意：SVG格式不支持，请转换为PNG或JPG格式。"
+            )
     
     async def upload_media(self, media_type: str, file_content: bytes, filename: str) -> Dict[str, Any]:
         """
@@ -255,7 +279,8 @@ class WechatApiClient:
     
     async def upload_permanent_media(self, media_type: str, file_content: bytes, 
                                     title: Optional[str] = None, 
-                                    introduction: Optional[str] = None) -> Dict[str, Any]:
+                                    introduction: Optional[str] = None,
+                                    filename: Optional[str] = None) -> Dict[str, Any]:
         """
         上传永久素材
         
@@ -264,6 +289,7 @@ class WechatApiClient:
             file_content: 文件内容
             title: 视频标题（video 类型时必填）
             introduction: 视频描述（video 类型时可选）
+            filename: 文件名（可选，用于确定文件类型）
             
         Returns:
             上传结果，包含 media_id 和 url（仅图片类型返回url）
@@ -271,7 +297,35 @@ class WechatApiClient:
         endpoint = "/cgi-bin/material/add_material"
         url = f"{self.BASE_URL}{endpoint}?access_token={self.access_token}&type={media_type}"
         
-        files = {'media': file_content}
+        # 根据素材类型确定文件名和扩展名
+        if media_type == 'image':
+            # 验证图片格式并获取扩展名
+            ext = self._validate_image_format(file_content, filename)
+            if not filename:
+                filename = f'image.{ext}'
+            elif not filename.lower().endswith(('.jpg', '.jpeg', '.png')):
+                # 如果文件名扩展名不正确，使用验证后的扩展名
+                filename = f"{filename.rsplit('.', 1)[0]}.{ext}"
+        elif media_type == 'thumb':
+            # 缩略图也是图片格式
+            ext = self._validate_image_format(file_content, filename)
+            if not filename:
+                filename = f'thumb.{ext}'
+            elif not filename.lower().endswith(('.jpg', '.jpeg', '.png')):
+                filename = f"{filename.rsplit('.', 1)[0]}.{ext}"
+        elif media_type == 'voice':
+            if not filename:
+                filename = 'voice.mp3'
+            elif not filename.lower().endswith(('.mp3', '.wma', '.wav', '.amr')):
+                raise ValueError("语音素材仅支持 mp3, wma, wav, amr 格式")
+        elif media_type == 'video':
+            if not filename:
+                filename = 'video.mp4'
+            elif not filename.lower().endswith(('.mp4', '.avi', '.wmv', '.flv', '.mov', '.mkv')):
+                raise ValueError("视频素材仅支持 mp4, avi, wmv, flv, mov, mkv 格式")
+        
+        # 使用正确的文件格式：元组 (filename, content)
+        files = {'media': (filename, file_content)}
         data = {}
         
         if media_type == 'video':

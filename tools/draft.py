@@ -3,6 +3,7 @@
 """
 import logging
 import time
+import re
 from typing import Dict, Any, List, Optional
 from mcp.types import Tool
 
@@ -24,6 +25,44 @@ COUNT_MIN = 1
 COUNT_MAX = 20
 
 
+def clean_html_content(content: str) -> str:
+    """
+    清理HTML内容，提取body内的内容，移除DOCTYPE、html、head等标签
+    
+    微信公众号图文消息只需要body内的HTML片段，不需要完整的HTML文档结构
+    
+    Args:
+        content: 原始HTML内容
+        
+    Returns:
+        清理后的HTML内容
+    """
+    if not content:
+        return content
+    
+    # 移除DOCTYPE声明
+    content = re.sub(r'<!DOCTYPE[^>]*>', '', content, flags=re.IGNORECASE)
+    
+    # 尝试提取body内的内容
+    body_match = re.search(r'<body[^>]*>(.*?)</body>', content, re.DOTALL | re.IGNORECASE)
+    if body_match:
+        # 提取body标签内的内容
+        body_content = body_match.group(1)
+        # 移除script和style标签及其内容（微信公众号不支持）
+        body_content = re.sub(r'<script[^>]*>.*?</script>', '', body_content, flags=re.DOTALL | re.IGNORECASE)
+        body_content = re.sub(r'<style[^>]*>.*?</style>', '', body_content, flags=re.DOTALL | re.IGNORECASE)
+        return body_content.strip()
+    
+    # 如果没有body标签，尝试移除html和head标签
+    content = re.sub(r'<html[^>]*>', '', content, flags=re.IGNORECASE)
+    content = re.sub(r'</html>', '', content, flags=re.IGNORECASE)
+    content = re.sub(r'<head[^>]*>.*?</head>', '', content, flags=re.DOTALL | re.IGNORECASE)
+    content = re.sub(r'<script[^>]*>.*?</script>', '', content, flags=re.DOTALL | re.IGNORECASE)
+    content = re.sub(r'<style[^>]*>.*?</style>', '', content, flags=re.DOTALL | re.IGNORECASE)
+    
+    return content.strip()
+
+
 def format_article_data(article: Dict[str, Any]) -> Dict[str, Any]:
     """
     格式化文章数据，将前端格式转换为API格式
@@ -34,9 +73,13 @@ def format_article_data(article: Dict[str, Any]) -> Dict[str, Any]:
     Returns:
         API格式的文章数据
     """
+    # 清理HTML内容，移除完整的HTML文档结构，只保留body内的内容
+    raw_content = article.get('content', '')
+    cleaned_content = clean_html_content(raw_content)
+    
     article_data = {
         'title': article.get('title', ''),
-        'content': article.get('content', '')
+        'content': cleaned_content
     }
     
     # 文章类型
