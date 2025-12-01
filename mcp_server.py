@@ -255,7 +255,7 @@ async def wechat_permanent_media(action: str = None, media_type: str = None, med
     return await handle_wechat_tool("wechat_permanent_media", arguments)
 
 @mcp.tool()
-async def wechat_draft(action: str = None, media_id: str = None, articles: list = None) -> str:
+async def wechat_draft(action: str = None, media_id: str = None, articles: list = None, checkonly: bool = None, index: int = None, offset: int = None, count: int = None, no_content: bool = None) -> str:
     """管理微信公众号图文草稿
 
     Args:
@@ -296,10 +296,20 @@ async def wechat_draft(action: str = None, media_id: str = None, articles: list 
         arguments['mediaId'] = media_id
     if articles:
         arguments['articles'] = articles
+    if checkonly is not None:
+        arguments['checkonly'] = checkonly
+    if index is not None:
+        arguments['index'] = index
+    if offset is not None:
+        arguments['offset'] = offset
+    if count is not None:
+        arguments['count'] = count
+    if no_content is not None:
+        arguments['noContent'] = no_content
     return await handle_wechat_tool("wechat_draft", arguments)
 
 @mcp.tool()
-async def wechat_publish(action: str = None, media_id: str = None, publish_id: str = None, article_id: str = None, index: int = None, offset: int = None, count: int = None, no_content: int = None) -> str:
+async def wechat_publish(action: str = None, media_id: str = None, publish_id: str = None, article_id: str = None, index: int = None, offset: int = None, count: int = None, no_content: bool = None) -> str:
     """管理微信公众号文章发布（提交发布任务、查询发布状态、获取已发布图文信息、删除已发布文章、获取发布列表）
 
     Args:
