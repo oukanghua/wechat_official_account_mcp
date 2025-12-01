@@ -1,0 +1,6 @@
+# FastMCP 2.0 - 主要MCP框架，支持HTTP模式和多种传输协议
+fastmcp>=2.1.0
+# 基础依赖
+python-dotenv>=1.0.0  # .env文件加载
+requests>=2.31.0      # HTTP请求（微信API客户端使用）
+aiohttp>=3.8.0

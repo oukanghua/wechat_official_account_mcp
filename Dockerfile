@@ -20,10 +20,10 @@ RUN apt-get update \
        curl \
     && rm -rf /var/lib/apt/lists/*
 
-# 安装Python依赖
+# 安装Python依赖 (FastMCP 2.0)
 RUN pip install --upgrade pip && \
-    pip install --no-cache-dir mcp requests python-dotenv aiohttp && \
-    python -c "import mcp; print('MCP installed')" || echo "Warning: MCP package may not be installed"
+    pip install --no-cache-dir fastmcp>=2.0.0 requests python-dotenv && \
+    python -c "import fastmcp; print(f'FastMCP {fastmcp.__version__} installed successfully')" || echo "Warning: FastMCP package installation may have issues"
 
 # 复制项目文件
 COPY . .
@@ -31,6 +31,13 @@ COPY . .
 # 创建数据目录（用于存储 SQLite 数据库）
 RUN mkdir -p /app/data
 
-# MCP 服务器通过 stdio 通信，不需要暴露端口
-# 使用 stdin/stdout 进行通信
+# MCP 服务器支持多种模式：
+# - HTTP模式：默认模式，通过端口3003对外提供服务
+# - stdio模式：通过标准输入输出通信（主要用于传统MCP客户端）
+# - SSE模式：服务器发送事件模式
+# 
+# 环境变量控制：
+# - MCP_TRANSPORT=http     # HTTP模式（Docker部署推荐）
+# - MCP_TRANSPORT=stdio    # stdio模式（传统MCP客户端）
+# - MCP_TRANSPORT=sse      # SSE模式（实时通知）
 CMD ["python", "main.py"]

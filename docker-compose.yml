@@ -1,12 +1,19 @@
-# Docker Compose 配置 - MCP 服务器
+# Docker Compose 配置 - MCP 服务器 (FastMCP 2.0 HTTP 模式)
 # 
 # 使用方式：
 # docker compose up -d
-# 
+#
+# FastMCP 2.0 新特性：
+# - 支持 HTTP 模式，可通过端口访问
+# - 支持多种传输协议 (stdio, http, sse)
+# - 纯 FastMCP 2.0 架构，移除原始 MCP SDK 依赖
+#
 # 配置说明：
 # - 在 .env 文件中配置微信公众号相关环境变量（WECHAT_APP_ID, WECHAT_APP_SECRET）
-# - MCP 服务器通过 stdio 与客户端通信，不需要暴露端口
-# - 数据目录（data/）会持久化到本地，包含认证配置和存储数据
+# - 通过 MCP_TRANSPORT 环境变量选择传输模式：stdio(默认)、http、sse
+# - HTTP 模式下服务器运行在端口 ${MCP_PORT:-3003}
+# - 数据目录（data/）会持久化到本地
+# - 健康检查确保服务可用性
 
 services:
   # MCP 服务器
@@ -16,11 +23,51 @@ services:
       dockerfile: Dockerfile
     container_name: wechat_mcp_server
     restart: unless-stopped
+    ports:
+      - "${MCP_PORT:-3003}:${MCP_PORT:-3003}"  # HTTP 模式端口映射
     volumes:
       - ./data:/app/data  # 持久化数据（SQLite 数据库）
+      - ./templates:/app/templates  # 模板文件
+      - ./logs:/app/logs  # 日志文件
     environment:
+      # 微信公众号配置
       - WECHAT_APP_ID=${WECHAT_APP_ID}
       - WECHAT_APP_SECRET=${WECHAT_APP_SECRET}
-    command: python main.py
+      
+      # FastMCP 2.0 配置
+      - MCP_TRANSPORT=${MCP_TRANSPORT}  # 启用 HTTP 模式 (支持: stdio, http, sse)
+      - MCP_HOST=${MCP_HOST}   # HTTP 服务器绑定地址
+      - MCP_PORT=${MCP_PORT}      # HTTP 服务器端口
+      
+      # 其他配置
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/app
+    
+    # 健康检查
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get(f'http://localhost:{MCP_PORT}', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    
+    # 保持与 stdio 模式的兼容性
     stdin_open: true
     tty: true
+    
+    networks:
+      - mcp-network
+
+# 网络配置
+networks:
+  mcp-network:
+    driver: bridge
+
+# 数据卷
+volumes:
+  wechat_data:
+    driver: local
+  wechat_templates:
+    driver: local
+  wechat_logs:
+    driver: local
