@@ -10,25 +10,26 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 # 配置pip使用国内镜像源以加速下载
 RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple \
-    && pip config set install.trusted-host pypi.tuna.tsinghua.edu.cn
-
-# 更新包列表并安装系统依赖
-RUN apt-get update \
+    && pip config set install.trusted-host pypi.tuna.tsinghua.edu.cn \
+    # 配置apt使用阿里云镜像源以加速下载
+    && sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debian.sources \
+    && sed -i 's/security.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debian.sources \
+    # 更新包列表并安装系统依赖
+    && apt-get update \
     && apt-get install -y --no-install-recommends --fix-missing \
        gcc \
        python3-dev \
        curl \
-    && rm -rf /var/lib/apt/lists/*
-
-# 安装Python依赖 (FastMCP 2.0)
-RUN pip install --upgrade pip && \
+    && rm -rf /var/lib/apt/lists/* && \
+    # 安装Python依赖 (FastMCP 2.0)
+    pip install --upgrade pip && \
     pip install --no-cache-dir fastmcp>=2.0.0 requests python-dotenv && \
     python -c "import fastmcp; print(f'FastMCP {fastmcp.__version__} installed successfully')" || echo "Warning: FastMCP package installation may have issues"
 
 # 复制项目文件
 COPY . .
 
-# 创建数据目录（用于存储 SQLite 数据库）
+# 创建数据目录（用于存储数据库）
 RUN mkdir -p /app/data
 
 # MCP 服务器支持多种模式：
