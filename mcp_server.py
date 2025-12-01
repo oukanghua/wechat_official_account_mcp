@@ -203,7 +203,7 @@ async def wechat_upload_img(file_path: str = None) -> str:
     return await handle_wechat_tool("wechat_upload_img", arguments)
 
 @mcp.tool()
-async def wechat_permanent_media(action: str = None, media_type: str = None, media_id: str = None, file_path: str = None) -> str:
+async def wechat_permanent_media(action: str = None, media_type: str = None, media_id: str = None, file_path: str = None, file_data: str = None, title: str = None, introduction: str = None, offset: int = None, count: int = None) -> str:
     """管理微信公众号永久素材（添加、根据mediaId获取单个素材、分类型获取永久素材列表、删除、统计）
 
     Args:
@@ -242,6 +242,16 @@ async def wechat_permanent_media(action: str = None, media_type: str = None, med
         arguments['mediaId'] = media_id
     if file_path:
         arguments['filePath'] = file_path
+    if file_data:
+        arguments['fileData'] = file_data
+    if title:
+        arguments['title'] = title
+    if introduction:
+        arguments['introduction'] = introduction
+    if offset is not None:
+        arguments['offset'] = offset
+    if count is not None:
+        arguments['count'] = count
     return await handle_wechat_tool("wechat_permanent_media", arguments)
 
 @mcp.tool()
