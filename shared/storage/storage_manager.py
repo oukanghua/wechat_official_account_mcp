@@ -23,7 +23,8 @@ class StorageManager:
         self.db_file = db_file
         self.data: Dict[str, Any] = {
             'media': [],  # 素材列表
-            'static_pages': []  # 静态网页列表
+            'static_pages': [],  # 静态网页列表
+            'wechat_messages': []  # 微信消息列表
         }
         self._load_data()
     
@@ -40,6 +41,8 @@ class StorageManager:
                     self.data['media'] = []
                 if 'static_pages' not in self.data:
                     self.data['static_pages'] = []
+                if 'wechat_messages' not in self.data:
+                    self.data['wechat_messages'] = []
             except Exception as e:
                 logger.error(f"加载存储数据失败: {e}")
                 self.data = {'media': [], 'static_pages': []}
@@ -133,6 +136,91 @@ class StorageManager:
                 logger.info(f"删除素材信息: {media_id}")
                 return True
         return False
+
+    # ========== 微信消息管理方法 ==========
+
+    def save_wechat_message(self, message_info: Dict[str, Any]):
+        """
+        保存微信消息信息
+        
+        Args:
+            message_info: 微信消息信息字典，包含 from_user, to_user, msg_type, content 等
+        """
+        # 使用时间戳作为唯一标识
+        import time
+        message_id = str(int(time.time() * 1000))
+        message_info['message_id'] = message_id
+        
+        # 添加到消息列表开头（最新的在前面）
+        self.data['wechat_messages'].insert(0, message_info)
+        
+        # 限制消息数量，避免文件过大（保留最近1000条）
+        if len(self.data['wechat_messages']) > 1000:
+            self.data['wechat_messages'] = self.data['wechat_messages'][:1000]
+        
+        logger.info(f"保存微信消息: {message_id}")
+        self._save_data()
+
+    def get_wechat_message(self, message_id: str) -> Optional[Dict[str, Any]]:
+        """
+        获取微信消息信息
+        
+        Args:
+            message_id: 消息ID
+            
+        Returns:
+            微信消息信息字典，如果不存在则返回 None
+        """
+        for message in self.data['wechat_messages']:
+            if message.get('message_id') == message_id:
+                return message
+        return None
+
+    def list_wechat_messages(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """
+        列出微信消息
+        
+        Args:
+            limit: 返回记录数量限制
+            
+        Returns:
+            微信消息列表
+        """
+        return self.data['wechat_messages'][:limit]
+
+    def delete_wechat_message(self, message_id: str) -> bool:
+        """
+        删除微信消息信息
+        
+        Args:
+            message_id: 消息ID
+            
+        Returns:
+            是否删除成功
+        """
+        for i, message in enumerate(self.data['wechat_messages']):
+            if message.get('message_id') == message_id:
+                del self.data['wechat_messages'][i]
+                self._save_data()
+                logger.info(f"删除微信消息: {message_id}")
+                return True
+        return False
+
+    def clear_wechat_messages(self) -> bool:
+        """
+        清空所有微信消息
+        
+        Returns:
+            是否清空成功
+        """
+        try:
+            self.data['wechat_messages'] = []
+            self._save_data()
+            logger.info("清空所有微信消息")
+            return True
+        except Exception as e:
+            logger.error(f"清空微信消息失败: {e}")
+            return False
 
     # ========== 静态网页管理方法 ==========
 

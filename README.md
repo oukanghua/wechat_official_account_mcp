@@ -1,6 +1,22 @@
 # 微信公众号 MCP 服务器 (FastMCP 2.0)
 
-一个功能完整的微信公众号管理 MCP 服务器，基于 **FastMCP 2.0** 框架，支持多种传输模式，提供认证、素材管理、草稿和发布等完整的公众号管理功能。
+基于 **FastMCP 2.0** 的微信公众号服务器，集成 **OpenAI AI 智能回复**功能。支持微信公众号消息处理、静态网页服务和现代化聊天界面。
+
+## 🚀 功能特性
+
+### 核心功能
+- **📱 微信公众号消息处理**: 支持文本、图片、语音等多种消息类型
+- **🤖 AI 智能回复**: 集成 OpenAI GPT 模型，提供智能自动回复
+- **📄 静态网页服务**: 提供 HTML 页面管理和 HTTP 服务
+- **💬 聊天界面**: 现代化的 Web 聊天界面，支持实时对话
+- **🔗 MCP 协议支持**: 兼容 MCP 2.0 标准，支持 stdio、HTTP、SSE 传输
+
+### 技术架构
+- **后端框架**: FastMCP 2.0
+- **AI 服务**: OpenAI GPT API
+- **HTTP 服务**: 内置 HTTP 服务器（端口 3004）
+- **数据存储**: 本地文件系统存储
+- **前端界面**: 响应式 HTML/CSS/JavaScript
 
 ## 🚀 快速开始
 
@@ -133,8 +149,17 @@ static_page(action="generate", htmlContent="<html><body><h1>Custom Page</h1></bo
 # 启动HTTP服务器（可选，服务会自动随主服务启动）
 static_page(action="start_server", port=3004)
 
+# 启动集成服务器（包含微信消息处理和聊天界面）
+static_page(action="start_integrated_server", port=3004)
+
 # 查看服务器状态
 static_page(action="server_status")
+
+# 查看集成服务器状态
+static_page(action="integrated_server_status")
+
+# 停止集成服务器
+static_page(action="stop_integrated_server")
 
 # 列出所有静态网页
 static_page(action="list")
@@ -145,7 +170,7 @@ static_page(action="info", filename="my_page")
 # 删除静态网页
 static_page(action="delete", filename="my_page")
 ```
-**功能**：动态生成静态HTML网页，通过HTTP服务器访问，支持随机命名和自定义命名，提供完整的网页管理功能
+**功能**：动态生成静态HTML网页，集成服务器支持微信消息处理和AI聊天界面，提供完整的网页和消息管理功能
 
 ## ⚙️ 部署配置
 

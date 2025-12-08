@@ -3,4 +3,10 @@ fastmcp>=2.1.0
 # 基础依赖
 python-dotenv>=1.0.0  # .env文件加载
 requests>=2.31.0      # HTTP请求（微信API客户端使用）
-aiohttp>=3.8.0
+aiohttp>=3.8.0        # 异步HTTP客户端
+httpx>=0.24.0         # 现代化异步HTTP客户端（AI服务使用）
+# AI服务依赖
+openai>=1.0.0         # OpenAI API客户端
+# 工具依赖
+click>=8.0.0          # 命令行界面
+rich>=13.0.0          # 终端美化输出
