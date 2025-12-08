@@ -586,6 +586,14 @@ class IntegratedStaticPageHandler(StaticPageHandler):
                         if is_final:
                             self.wfile.write(b"data: [DONE]\n\n")
                         else:
+                            # 确保message_content是字符串
+                            if not isinstance(message_content, str):
+                                # 对于复杂对象，使用json.dumps转换
+                                if isinstance(message_content, (dict, list)):
+                                    message_content = json.dumps(message_content)
+                                else:
+                                    # 对于简单类型，使用str转换
+                                    message_content = str(message_content)
                             sse_data = f"data: {message_content}\n\n"
                             self.wfile.write(sse_data.encode('utf-8'))
                         self.wfile.flush()
@@ -662,8 +670,18 @@ class IntegratedStaticPageHandler(StaticPageHandler):
                                                     if 'choices' in data and data['choices']:
                                                         delta = data['choices'][0].get('delta', {})
                                                         if 'content' in delta:
-                                                            await stream_callback(delta['content'])
-                                                except json.JSONDecodeError:
+                                                            content = delta['content']
+                                                            # 确保content是字符串
+                                                            if isinstance(content, str):
+                                                                await stream_callback(content)
+                                                            else:
+                                                                # 如果不是字符串，转换为字符串
+                                                                await stream_callback(str(content))
+                                                except json.JSONDecodeError as json_error:
+                                                    logger.warning(f"JSON解析失败: {json_error}, line: {line}")
+                                                    continue
+                                                except Exception as parse_error:
+                                                    logger.warning(f"数据解析失败: {parse_error}")
                                                     continue
                                     except Exception as stream_error:
                                         logger.error(f"处理流式响应失败: {stream_error}")
@@ -972,7 +990,7 @@ class IntegratedStaticPageHandler(StaticPageHandler):
                 logger.error(f"获取AI配置信息失败: {e}")
             
             # 替换模板中的占位符（如果有的话）
-            # html_content = html_content.replace('{{ai_config_info}}', ai_config_info)
+            html_content = html_content.replace('{{ai_config_info}}', ai_config_info)
             
             return html_content
             

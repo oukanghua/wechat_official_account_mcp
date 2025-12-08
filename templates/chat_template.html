@@ -12,21 +12,13 @@
     <script>
         // 配置marked.js
         if (typeof marked !== 'undefined') {
-            marked.setOptions({
-                breaks: true,     // 启用GFM换行符
-                gfm: true,        // 启用GitHub风味markdown
-                headerIds: false, // 禁用标题ID
-                mangle: false,    // 禁用邮箱地址混淆
-                sanitize: false,  // 禁用HTML清理（允许内联HTML）
-                linkify: true     // 启用自动链接识别
-            });
-            
-            // 手动设置renderer来确保链接正确渲染
-            const renderer = new marked.Renderer();
-            
             // 实现基本的HTML转义函数
             function escapeHtml(text) {
-                if (!text) return '';
+                if (text === null || text === undefined) return '';
+                // 确保输入是字符串
+                if (typeof text !== 'string') {
+                    text = String(text);
+                }
                 return text
                     .replace(/&/g, '&amp;')
                     .replace(/</g, '&lt;')
@@ -35,20 +27,68 @@
                     .replace(/'/g, '&#39;');
             }
             
-            // 自定义链接渲染
-            renderer.link = function(url, title, linkText) {
-                const href = escapeHtml(url);
-                const titleAttr = title ? ' title="' + escapeHtml(title) + '"' : '';
-                const displayText = escapeHtml(linkText || url);
-                return '<a href="' + href + '"' + titleAttr + ' target="_blank" rel="noopener noreferrer">' + displayText + '</a>';
+            // 创建完整的renderer实现
+            const renderer = {
+                // 自定义链接渲染
+                link: function(href, title, text) {
+                    const escapedHref = escapeHtml(String(href || ''));
+                    const titleAttr = title ? ' title="' + escapeHtml(String(title)) + '"' : '';
+                    const displayText = escapeHtml(String(text || href || ''));
+                    return '<a href="' + escapedHref + '"' + titleAttr + ' target="_blank" rel="noopener noreferrer">' + displayText + '</a>';
+                },
+                
+                // 自定义文本渲染
+                text: function(text) {
+                    return escapeHtml(String(text || ''));
+                },
+                
+                // 自定义段落渲染 - 确保空段落不生成占位符
+                paragraph: function(text) {
+                    // 确保text是字符串
+                    text = String(text || '');
+                    // 如果段落内容为空或只包含空格，返回空字符串
+                    if (!text.trim()) {
+                        return '';
+                    }
+                    return '<p>' + text + '</p>';
+                },
+                
+                // 自定义列表渲染 - 强制使用无序列表(ul)，无论markdown中是有序还是无序
+                list: function(body, ordered) {
+                    // 确保body是字符串
+                    body = String(body || '');
+                    // 如果列表内容为空，返回空字符串
+                    if (!body.trim()) {
+                        return '';
+                    }
+                    // 强制使用ul标签，忽略ordered参数
+                    return '<ul>' + body + '</ul>';
+                },
+                
+                // 自定义列表项渲染 - 确保空列表项不生成占位符，移除多余的<br>
+                listitem: function(text) {
+                    // 确保text是字符串
+                    text = String(text || '');
+                    // 如果列表内容为空或只包含空格，返回空字符串
+                    if (!text.trim()) {
+                        return '';
+                    }
+                    // 移除列表项中的<br>标签
+                    const cleanedText = text.replace(/<br\s*\/?>/gi, '');
+                    return '<li>' + cleanedText + '</li>';
+                }
             };
             
-            // 自定义文本转义
-            renderer.text = function(text) {
-                return escapeHtml(text);
-            };
-            
-            marked.use({ renderer: renderer });
+            // 使用marked.use配置marked.js（v16推荐方式）
+            marked.use({
+                breaks: true,     // 启用GFM换行符
+                gfm: true,        // 启用GitHub风味markdown
+                headerIds: false, // 禁用标题ID
+                mangle: false,    // 禁用邮箱地址混淆
+                sanitize: false,  // 禁用HTML清理（允许内联HTML）
+                linkify: true,    // 启用自动链接识别
+                renderer: renderer
+            });
             
             console.log('marked.js配置完成:', {
                 version: marked.version,
@@ -68,66 +108,197 @@
             });
         });
         
+        // 辅助函数：提取对象的文本内容
+        function extractText(item) {
+            if (item === null || item === undefined) return '';
+            if (typeof item === 'string') return item;
+            if (typeof item === 'number' || typeof item === 'boolean') return String(item);
+            if (Array.isArray(item)) {
+                // 数组：处理每个元素，提取文本内容
+                return item.map(extractText).filter(text => text.trim()).join(' ');
+            } else if (typeof item === 'object') {
+                // 先尝试避免直接调用String(item)产生"[object Object]"
+                // 对象：优先处理常见的嵌套结构
+                if (item.delta && typeof item.delta === 'object') {
+                    return extractText(item.delta);
+                } else if (item.choices && Array.isArray(item.choices)) {
+                    return item.choices.map(extractText).filter(text => text.trim()).join(' ');
+                } else if (item.usage && typeof item.usage === 'object') {
+                    // 忽略usage对象，不提取文本
+                    return '';
+                }
+                
+                // 优先提取常见的内容字段
+                if (item.content) return extractText(item.content);
+                if (item.text) return extractText(item.text);
+                if (item.message) return extractText(item.message);
+                if (item.data) return extractText(item.data);
+                if (item.textContent) return extractText(item.textContent);
+                if (item.body) return extractText(item.body);
+                
+                // 如果是对象但没有直接的文本字段，尝试递归处理其所有属性
+                let result = [];
+                for (const [key, value] of Object.entries(item)) {
+                    if (value !== null && value !== undefined) {
+                        const extracted = extractText(value);
+                        // 确保提取的内容不是"[object Object]"
+                        if (extracted.trim() && extracted !== '[object Object]') {
+                            result.push(extracted);
+                        }
+                    }
+                }
+                return result.join(' ');
+            }
+            // 其他类型，转换为字符串
+            return String(item);
+        }
+
         // 处理AI返回的内容，统一转换为可显示的HTML
         function processAIContent(content) {
-            if (!content) return '';
-            
-            // 如果内容包含HTML标签，先处理再转换
-            if (content.includes('<') && content.includes('>')) {
-                // 处理反引号包围的链接：转换为可点击链接
-                let processed = content
-                    // 将 `url` 格式转换为标准链接格式
-                    .replace(/`([^`\s]+)`/g, '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>')
-                    // 优化链接显示 - 避免使用new URL()
-                    .replace(/<a href="([^"]+)">https?:\/\/[^<]*\/([^<]*?)<\/a>/g, (match, url, path) => {
-                        // 安全地获取域名
-                        try {
-                            // 先尝试使用URL对象
-                            const urlObj = new URL(url);
-                            const domain = urlObj.hostname;
-                            const displayText = path || domain;
-                            return `<a href="${url}" target="_blank" rel="noopener noreferrer">${displayText}</a>`;
-                        } catch (e) {
-                            // 如果URL无效，只显示路径部分
-                            const displayText = path || url.substring(url.lastIndexOf('/') + 1);
-                            return `<a href="${url}" target="_blank" rel="noopener noreferrer">${displayText}</a>`;
-                        }
-                    });
-                
-                return processed;
-            } else {
-                // 纯文本内容，使用markdown处理
-                return marked.parse(content);
+            // 1. 首先检查输入是否有效
+            if (content === null || content === undefined) {
+                return '';
             }
-        }
-
-        // 预处理markdown文本，转换特殊格式
-        function preprocessMarkdown(text) {
-            if (!text) return '';
             
-            return text
+            // 2. 确保内容是字符串类型并尝试解析JSON
+            let safeContent;
+            if (typeof content === 'string') {
+                // 如果是字符串，先尝试解析为JSON对象
+                try {
+                    const trimmedContent = content.trim();
+                    if ((trimmedContent.startsWith('{') && trimmedContent.endsWith('}')) || 
+                        (trimmedContent.startsWith('[') && trimmedContent.endsWith(']'))) {
+                        // 尝试解析为JSON对象
+                        const jsonData = JSON.parse(content);
+                        // 提取实际内容
+                        safeContent = extractText(jsonData);
+                    } else {
+                        // 不是JSON格式，直接使用
+                        safeContent = content;
+                    }
+                } catch (e) {
+                    // JSON解析失败，直接使用原始字符串
+                    console.warn('processAIContent JSON解析失败，使用原始字符串:', e);
+                    safeContent = content;
+                }
+            } else if (Array.isArray(content) || typeof content === 'object') {
+                // 如果是数组或对象，尝试提取内容
+                try {
+                    safeContent = extractText(content);
+                } catch (e) {
+                    // 出错时转换为字符串
+                    console.warn('processAIContent提取内容失败:', e);
+                    safeContent = JSON.stringify(content);
+                }
+            } else {
+                // 其他类型，转换为字符串
+                safeContent = String(content);
+            }
+            
+            // 3. 清理内容
+            safeContent = safeContent
+                // 移除所有[object Object]占位符
+                .replace(/\[object Object\]/g, '')
+                // 移除所有[内容]占位符
+                .replace(/\[内容\]/g, '')
+                // 移除所有HTML实体占位符 - 包括带有样式的span标签
+                .replace(/<span[^>]*>\s*\[内容\]\s*<\/span>/gi, '')
+                .replace(/<p[^>]*>\s*<span[^>]*>\s*\[内容\]\s*<\/span>\s*<\/p>/gi, '')
+                // 移除完整的<li><p><span>[内容]</span></p></li>结构，包括带有样式的span
+                .replace(/<li[^>]*>\s*<p[^>]*>\s*<span[^>]*>\s*\[内容\]\s*<\/span>\s*<\/p>\s*<\/li>/gi, '')
+                // 移除直接在<li>中的<span>[内容]</span>
+                .replace(/<li[^>]*>\s*<span[^>]*>\s*\[内容\]\s*<\/span>\s*<\/li>/gi, '')
+                // 移除直接在<p>中的[内容]
+                .replace(/<p[^>]*>\s*\[内容\]\s*<\/p>/gi, '')
+                // 移除直接在<li>中的[内容]
+                .replace(/<li[^>]*>\s*\[内容\]\s*<\/li>/gi, '')
+                // 移除多余空格
+                .trim();
+            
+            // 4. 检查清理后是否为空
+            if (safeContent === '' || safeContent === 'null' || safeContent === 'undefined') {
+                return '';
+            }
+            
+            // 5. 预处理markdown文本
+            let processedContent = safeContent
+                // 修复链接格式：移除markdown链接中的html标签和反引号
+                .replace(/\[(.*?)\]\(<a[^>]+>`([^<`]+)`<\/a>\)/g, '[$1]($2)')
+                .replace(/\[(.*?)\]\(<a[^>]+>([^<]+)<\/a>\)/g, '[$1]($2)')
+                // 修复单独的链接标签，移除反引号
+                .replace(/<a href="\s*`([^`]+)`\s*"/g, '<a href="$1"')
                 // 转换链接格式：链接： `url` -> [链接](url)
                 .replace(/链接：\s*`([^`]+)`/g, '[$1]($1)')
-                // 转换数字编号为有序列表
-                .replace(/^(\d+)\.\s+/gm, '$1. ')
+                // 在数字编号前添加换行符，确保每个列表项独立成行
+                .replace(/(?!^)(\d+)\.\s+/g, '\n$1. ')
+                // 确保每个列表项结束后也有换行符
+                .replace(/(\d+)\.\s+([^\d]+)(?=(\d+\.\s+|$))/g, '$1. $2\n')
                 // 处理粗体标题
                 .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-        }
-
-        // 简化的markdown处理函数
-        function simpleMarkdown(text) {
-            if (!text) return '';
             
-            // 先预处理文本
-            const processedText = preprocessMarkdown(text);
+            // 6. 检查预处理后是否为空
+            if (!processedContent) {
+                return '';
+            }
             
-            // 简单的markdown到HTML转换
-            return processedText
-                .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')  // 粗体
-                .replace(/\*(.*?)\*/g, '<em>$1</em>')              // 斜体
-                .replace(/`(.*?)`/g, '<code>$1</code>')            // 行内代码
-                .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')  // 链接
-                .replace(/\n/g, '<br>');                           // 换行
+            // 7. 使用marked.js处理内容
+            try {
+                let html = marked.parse(processedContent);
+                
+                // 8. 清理生成的HTML，移除所有空标签和占位符
+                html = html
+                    // 移除所有[内容]占位符 - 直接文本形式
+                    .replace(/\[内容\]/g, '')
+                    // 移除带有样式的<span>[内容]</span>
+                    .replace(/<span[^>]*>\s*\[内容\]\s*<\/span>/gi, '')
+                    // 移除<p><span>[内容]</span></p>结构
+                    .replace(/<p[^>]*>\s*<span[^>]*>\s*\[内容\]\s*<\/span>\s*<\/p>/gi, '')
+                    // 移除完整的<li><p><span>[内容]</span></p></li>结构，包括带有样式的span
+                    .replace(/<li[^>]*>\s*<p[^>]*>\s*<span[^>]*>\s*\[内容\]\s*<\/span>\s*<\/p>\s*<\/li>/gi, '')
+                    // 移除直接在<li>中的<span>[内容]</span>
+                    .replace(/<li[^>]*>\s*<span[^>]*>\s*\[内容\]\s*<\/span>\s*<\/li>/gi, '')
+                    // 移除直接在<p>中的[内容]
+                    .replace(/<p[^>]*>\s*\[内容\]\s*<\/p>/gi, '')
+                    // 移除直接在<li>中的[内容]
+                    .replace(/<li[^>]*>\s*\[内容\]\s*<\/li>/gi, '')
+                    // 将所有ol标签转换为ul标签
+                    .replace(/<ol>/gi, '<ul>')
+                    .replace(/<\/ol>/gi, '</ul>')
+                    // 合并相邻的ul列表
+                    .replace(/<\/ul>\s*<ul>/gi, '')
+                    // 移除空的段落标签
+                    .replace(/<p>\s*<\/p>/gi, '')
+                    .replace(/<p>\s*<span[^>]*>\s*<\/span>\s*<\/p>/gi, '')
+                    // 移除空的列表标签
+                    .replace(/<ul>\s*<\/ul>/gi, '')
+                    // 移除空的列表项
+                    .replace(/<li>\s*<\/li>/gi, '')
+                    .replace(/<li>\s*<p>\s*<\/p>\s*<\/li>/gi, '')
+                    .replace(/<li>\s*<span[^>]*>\s*<\/span>\s*<\/li>/gi, '')
+                    // 确保列表项内没有多余的换行
+                    .replace(/<li>([\s\S]*?)<\/li>/gi, function(match, content) {
+                        return '<li>' + content.replace(/\n\s*/g, ' ').trim() + '</li>';
+                    })
+                    // 移除多余空格
+                    .trim();
+                
+                // 9. 确保最终HTML不为空
+                return html || '';
+            } catch (error) {
+                console.warn('Markdown解析失败，使用简化处理:', error);
+                
+                // 简化处理：只处理基本的文本格式
+                let simpleHtml = processedContent
+                    // 转换链接
+                    .replace(/https?:\/\/[^\s]+/g, '<a href="$&" target="_blank" rel="noopener noreferrer">$&</a>')
+                    // 转换粗体
+                    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+                    // 转换列表 - 使用ul标签
+                    .replace(/(\d+)\.\s+([^\n]+)/g, '<li>$1. $2</li>')
+                    .replace(/(<li>.*<\/li>)/g, '<ul>$1</ul>');
+                
+                return simpleHtml || '';
+            }
         }
     </script>
     <style>
@@ -241,6 +412,54 @@
             cursor: not-allowed;
         }
 
+        /* 媒体查询：优化手机端显示 */
+        @media (max-width: 600px) {
+            /* 调整按钮样式，只显示图标 */
+            .clear-chat-btn,
+            .config-toggle {
+                padding: 8px;
+                width: 36px;
+                height: 36px;
+                text-align: center;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                overflow: hidden;
+                position: absolute; /* 保持绝对定位 */
+            }
+            
+            /* 调整清除按钮位置 */
+            .clear-chat-btn {
+                right: 60px; /* 调整位置，确保与配置按钮紧密排列 */
+            }
+            
+            .config-toggle {
+                right: 15px; /* 保持在最右侧 */
+            }
+            
+            /* 隐藏按钮文字，只显示图标 - 使用字体大小和文本缩进技巧 */
+            .clear-chat-btn,
+            .config-toggle {
+                font-size: 0;
+            }
+            
+            /* 使用伪元素重新显示图标 */
+            .clear-chat-btn::before {
+                content: '🗑️';
+                font-size: 16px;
+            }
+            
+            .config-toggle::before {
+                content: '⚙️';
+                font-size: 16px;
+            }
+            
+            /* 隐藏欢迎消息中的快速回复按钮，节省空间 */
+            .quick-replies {
+                display: none;
+            }
+        }
+
         /* 聊天内容区域 */
         .chat-content {
             flex: 1;
@@ -326,7 +545,7 @@
             justify-content: flex-end;
         }
 
-        .message.bot {
+        .message.assistant {
             justify-content: flex-start;
         }
 
@@ -346,7 +565,7 @@
             color: white;
         }
 
-        .message.bot .message-avatar {
+        .message.assistant .message-avatar {
             background: #e2e8f0;
             color: #475569;
         }
@@ -369,7 +588,7 @@
             border-bottom-right-radius: 4px;
         }
 
-        .message.bot .message-text {
+        .message.assistant .message-text {
             background: #f1f5f9;
             color: #334155;
             border-bottom-left-radius: 4px;
@@ -498,7 +717,7 @@
             text-align: right;
         }
 
-        .message.bot .message-time {
+        .message.assistant .message-time {
             text-align: left;
         }
 
@@ -1044,17 +1263,18 @@
             showLoading();
 
             try {
-                // 使用SSE流式请求
-                const response = await fetch(CONFIG.apiEndpoint, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ 
-                        message: message,
-                        timestamp: Date.now()
-                    })
-                });
+                // 使用SSE流式请求，携带完整聊天历史作为上下文
+            const response = await fetch(CONFIG.apiEndpoint, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ 
+                    message: message,
+                    timestamp: Date.now(),
+                    context: chatHistory // 发送完整聊天历史作为上下文
+                })
+            });
 
                 if (!response.ok) {
                     throw new Error('Network response was not ok');
@@ -1066,7 +1286,7 @@
 
                 // 创建AI回复消息元素
                 const messageDiv = document.createElement('div');
-                messageDiv.className = 'message bot';
+                messageDiv.className = 'message assistant';
                 
                 const avatarDiv = document.createElement('div');
                 avatarDiv.className = 'message-avatar';
@@ -1125,7 +1345,7 @@
                             if (endPos === -1) break;
                             
                             // 提取数据内容
-                            const dataLine = buffer.substring(dataPos + 6, endPos);
+                            let dataLine = buffer.substring(dataPos + 6, endPos);
                             start = endPos + 2;
                             
                             if (dataLine === '[DONE]') {
@@ -1134,10 +1354,46 @@
                                 break;
                             }
                             
-                            // 累积内容
-                            fullContent += dataLine;
+                            // 处理SSE数据 - 可能是JSON格式或直接文本
+                            let contentChunk = dataLine;
+                            try {
+                                // 先尝试直接作为文本处理
+                                contentChunk = dataLine;
+                                
+                                // 检查是否是JSON格式（以{或[开头）
+                                const trimmedData = dataLine.trim();
+                                if ((trimmedData.startsWith('{') && trimmedData.endsWith('}')) || 
+                                    (trimmedData.startsWith('[') && trimmedData.endsWith(']'))) {
+                                    // 尝试解析为JSON对象
+                                    const jsonData = JSON.parse(dataLine);
+                                    
+                                    // 提取实际内容 - 使用全局的extractText函数
+                                    const extractedContent = extractText(jsonData);
+                                    
+                                    // 只有当提取到内容时才使用，否则作为普通文本处理
+                                    if (extractedContent.trim()) {
+                                        contentChunk = extractedContent;
+                                    }
+                                }
+                            } catch (e) {
+                                // 如果JSON解析失败，继续作为普通字符串处理
+                                console.warn('SSE数据处理失败，作为普通字符串处理:', dataLine, e);
+                                contentChunk = dataLine;
+                            }
                             
-                            // 节流渲染：每10个字符渲染一次，提升性能
+                            // 确保contentChunk是字符串
+                            if (typeof contentChunk !== 'string') {
+                                contentChunk = JSON.stringify(contentChunk);
+                            }
+                            
+                            // 累积实际内容
+                            // 确保contentChunk是字符串
+                            if (typeof contentChunk !== 'string') {
+                                contentChunk = JSON.stringify(contentChunk);
+                            }
+                            fullContent += contentChunk;
+                            
+                            // 节流渲染：每10个字符渲染一次，确保性能
                             renderThrottle++;
                             if (renderThrottle % 10 === 0 || fullContent.length < 50) {
                                 try {
@@ -1157,14 +1413,35 @@
 
                 // 最终渲染完整内容
                 try {
+                    // 确保fullContent是字符串类型
+                    if (typeof fullContent !== 'string') {
+                        fullContent = JSON.stringify(fullContent);
+                    }
                     textDiv.innerHTML = processAIContent(fullContent);
+                    
+                    // 将完整的AI回复添加到聊天历史
+                    const aiMessageTime = new Date().toLocaleTimeString('zh-CN', {
+                        hour: '2-digit',
+                        minute: '2-digit'
+                    });
+                    const aiMessageData = {
+                        content: fullContent,
+                        sender: 'assistant',
+                        timestamp: new Date().toISOString(),
+                        time: aiMessageTime
+                    };
+                    chatHistory.push(aiMessageData);
+                    saveChatHistory();
+                    
+                    // 更新清除按钮状态
+                    updateClearButtonState();
                 } catch (error) {
                     console.warn('Final markdown rendering failed:', error);
                 }
 
             } catch (error) {
                 console.error('发送消息失败:', error);
-                addMessage('抱歉，发生错误，请稍后重试。', 'bot');
+                addMessage('抱歉，发生错误，请稍后重试。', 'assistant');
             } finally {
                 hideLoading();
             }
@@ -1192,19 +1469,20 @@
             messageTimeDiv.textContent = time;
 
             // 设置消息内容
-            if (sender === 'bot') {
+            if (sender === 'assistant') {
                 // AI消息使用新的内容处理函数
                 try {
+                    // 直接传递内容给processAIContent函数，它会处理各种类型
                     const processedContent = processAIContent(content);
                     messageTextDiv.innerHTML = processedContent;
                 } catch (error) {
                     // 如果内容处理失败，使用备用处理函数
                     console.warn('Content processing failed:', error);
-                    messageTextDiv.textContent = content;
+                    messageTextDiv.textContent = typeof content === 'string' ? content : extractText(content);
                 }
             } else {
                 // 用户消息使用纯文本显示
-                messageTextDiv.textContent = content;
+                messageTextDiv.textContent = typeof content === 'string' ? content : JSON.stringify(content);
             }
 
             // 设置头像
@@ -1332,7 +1610,7 @@
                 if (result.success) {
                     // 重新加载配置
                     await loadConfig();
-                    addMessage('配置已保存，AI服务已更新！', 'bot');
+                    addMessage('配置已保存，AI服务已更新！', 'assistant');
                     toggleConfigPanel();
                 } else {
                     configStatus.innerHTML = `保存失败: ${result.error}`;
@@ -1444,18 +1722,19 @@
             messageTimeDiv.textContent = messageData.time;
 
             // 设置消息内容
-            if (messageData.sender === 'bot') {
+            if (messageData.sender === 'assistant') {
                 // AI消息使用新的内容处理函数
                 try {
+                    // 直接传递内容给processAIContent函数，它会处理各种类型
                     const processedContent = processAIContent(messageData.content);
                     messageTextDiv.innerHTML = processedContent;
                 } catch (error) {
                     console.warn('Markdown parsing failed during restore:', error);
-                    messageTextDiv.textContent = messageData.content;
+                    messageTextDiv.textContent = typeof messageData.content === 'string' ? messageData.content : extractText(messageData.content);
                 }
             } else {
                 // 用户消息使用纯文本显示
-                messageTextDiv.textContent = messageData.content;
+                messageTextDiv.textContent = typeof messageData.content === 'string' ? messageData.content : JSON.stringify(messageData.content);
             }
 
             // 设置头像
@@ -1467,7 +1746,7 @@
             messageContentDiv.appendChild(messageTimeDiv);
 
             messageDiv.appendChild(avatarDiv);
-            messageContentDiv.appendChild(messageContentDiv);
+            messageDiv.appendChild(messageContentDiv);
 
             chatMessages.appendChild(messageDiv);
         }
@@ -1544,3 +1823,4 @@
     </script>
 </body>
 </html>
+
