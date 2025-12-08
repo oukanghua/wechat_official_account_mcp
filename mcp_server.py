@@ -81,12 +81,12 @@ async def handle_wechat_tool(tool_name: str, arguments: dict = None) -> str:
             return result
         
         # 需要 API 客户端的工具
-        elif tool_name in ["wechat_media_upload", "wechat_upload_img", "wechat_permanent_media", 
+        elif tool_name in ["wechat_temporary_media", "wechat_upload_img", "wechat_permanent_media", 
                           "wechat_draft", "wechat_publish"]:
             from shared.utils.wechat_api_client import WechatApiClient
             api_client = await WechatApiClient.from_auth_manager(auth_manager)
             
-            if tool_name == "wechat_media_upload":
+            if tool_name == "wechat_temporary_media":
                 from tools.media import handle_media_upload_tool
                 result = await handle_media_upload_tool(arguments, api_client, storage_manager)
             elif tool_name == "wechat_upload_img":
@@ -102,6 +102,14 @@ async def handle_wechat_tool(tool_name: str, arguments: dict = None) -> str:
                 from tools.publish import handle_publish_tool
                 result = await handle_publish_tool(arguments, api_client)
             
+            return result
+        
+        # 静态网页工具
+        elif tool_name == "static_page":
+            from tools.static_pages import StaticPageManager
+            static_page_manager = StaticPageManager()
+            from tools.static_pages import handle_static_page_tool
+            result = handle_static_page_tool(arguments, static_page_manager)
             return result
         
         else:
@@ -150,8 +158,8 @@ async def wechat_auth(action: str = None, app_id: str = None, app_secret: str = 
     return await handle_wechat_tool("wechat_auth", arguments)
 
 @mcp.tool()
-async def wechat_media_upload(action: str = None, media_type: str = None, file_path: str = None) -> str:
-    """上传和管理微信公众号临时素材（图片、语音、视频、缩略图）
+async def wechat_temporary_media(action: str = None, media_type: str = None, file_path: str = None) -> str:
+    """管理/上传微信公众号临时素材
 
     Args:
         action: 操作类型 (upload, get, list)
@@ -168,10 +176,10 @@ async def wechat_media_upload(action: str = None, media_type: str = None, file_p
         
     Examples:
         >>> # 上传图片素材
-        >>> await wechat_media_upload(action="upload", media_type="image", file_path="/path/to/image.jpg")
+        >>> await wechat_temporary_media(action="upload", media_type="image", file_path="/path/to/image.jpg")
         
         >>> # 获取临时素材
-        >>> await wechat_media_upload(action="get", media_id="media_id_here")
+        >>> await wechat_temporary_media(action="get", media_id="media_id_here")
     """
     arguments = {}
     if action:
@@ -255,13 +263,19 @@ async def wechat_permanent_media(action: str = None, media_type: str = None, med
     return await handle_wechat_tool("wechat_permanent_media", arguments)
 
 @mcp.tool()
-async def wechat_draft(action: str = None, media_id: str = None, articles: list = None, checkonly: bool = None, index: int = None, offset: int = None, count: int = None, no_content: bool = None) -> str:
+async def wechat_draft(action: str = None, media_id: str = None, article: dict = None, checkonly: bool = None, index: int = None, offset: int = None, count: int = None, no_content: bool = None) -> str:
     """管理微信公众号图文草稿
 
     Args:
         action: 操作类型 (add, get, delete, list, count, update, switch)
         media_id: 草稿 Media ID（获取、删除、更新时必需）
-        articles: 文章列表（创建/更新时必需）
+        article: 文章对象，包含以下字段（创建/更新时必需）：
+            - title: 文章标题（必需）
+            - content: 文章内容（必需）
+            - thumbMediaId: 封面图片媒体ID（必需）
+            - author: 作者（可选）
+            - digest: 摘要（可选）
+            - contentSourceUrl: 原文链接（可选）
         checkonly: 仅查询开关状态时传true，设置开关时传false或不传（switch操作时使用）
         index: 要更新的文章在图文消息中的位置（更新时使用，多图文消息时此字段才有意义），第一篇为0
         offset: 偏移量（列表时使用，从0开始）
@@ -273,13 +287,16 @@ async def wechat_draft(action: str = None, media_id: str = None, articles: list 
         
     Examples:
         >>> # 创建草稿
-        >>> articles = [{
-        ...     "title": "文章标题",
-        ...     "content": "文章内容",
-        ...     "thumbMediaId": "封面图片媒体ID"
-        ... }]
-        >>> await wechat_draft(action="add", articles=articles)
-        
+        >>> await wechat_draft(action="add", article=article)
+            >>> article = {
+            ...     "title": "文章标题",
+            ...     "content": "文章内容",
+            ...     "thumbMediaId": "封面图片媒体ID",
+            ...     "author": "作者姓名",
+            ...     "digest": "文章摘要",
+            ...     "contentSourceUrl": "原文链接"
+            ... }
+            
         >>> # 获取草稿
         >>> await wechat_draft(action="get", media_id="draft_media_id")
         
@@ -294,7 +311,16 @@ async def wechat_draft(action: str = None, media_id: str = None, articles: list 
         arguments['action'] = action
     if media_id:
         arguments['mediaId'] = media_id
-    if articles:
+    if article:
+        # 将article对象转换为articles数组格式
+        articles = [{
+            "title": article.get("title", ""),
+            "content": article.get("content", ""),
+            "thumbMediaId": article.get("thumbMediaId", ""),
+            "author": article.get("author", ""),
+            "digest": article.get("digest", ""),
+            "contentSourceUrl": article.get("contentSourceUrl", "")
+        }]
         arguments['articles'] = articles
     if checkonly is not None:
         arguments['checkonly'] = checkonly
@@ -320,7 +346,7 @@ async def wechat_publish(action: str = None, media_id: str = None, publish_id: s
         index: 要删除的文章在图文消息中的位置（删除发布时可选，第一篇编号为1，不填或填0会删除全部文章）
         offset: 偏移量（列表时使用，从0开始）
         count: 数量（列表时使用，取值在1到20之间）
-        noContent: 是否返回content字段（列表时可选，1表示不返回content字段，0表示正常返回，默认为0）
+        noContent: 是否返回content字段（列表时可选，true表示不返回content字段，false表示正常返回，默认为false）
 
     Returns:
         操作结果文本
@@ -335,8 +361,8 @@ async def wechat_publish(action: str = None, media_id: str = None, publish_id: s
         >>> # 删除已发布的文章
         >>> await wechat_publish(action="delete", article_id="published_article_id")
         
-        >>> # 获取发布列表
-        >>> await wechat_publish(action="list", offset=0, count=10)
+        >>> # 获取发布列表（不返回content内容）
+        >>> await wechat_publish(action="list", offset=0, count=10, no_content=True)
         
         >>> # 获取已发布图文信息
         >>> await wechat_publish(action="getarticle", article_id="published_article_id")
@@ -361,57 +387,95 @@ async def wechat_publish(action: str = None, media_id: str = None, publish_id: s
     return await handle_wechat_tool("wechat_publish", arguments)
 
 @mcp.tool()
-async def wechat_template(action: str = None, title: str = None, intro: str = None, image: str = None, warning: str = None, sections: list = None, tags: list = None, action_button: dict = None, footer: list = None, template_name: str = None) -> str:
-    """根据P站样式模板生成公众号文章HTML内容。当用户说'使用p站模板'或'使用phub模板'时，使用此工具根据提供的内容生成符合P站样式的HTML文章。
+async def static_page(action: str = None, html_content: str = None, filename: str = None) -> str:
+    """静态网页管理工具，用于生成和管理静态HTML网页
 
     Args:
-        action: 操作类型 (generate, get_template)
-        title: 文章标题
-        intro: 文章介绍段落（可选）
-        image: 顶部图片占位符文本（可选）
-        warning: 警告提示文本（可选）
-        sections: 文章章节列表
-        tags: 标签列表（可选）
-        actionButton: 行动按钮（可选）
-        footer: 页脚文本列表（可选）
-        templateName: 模板文件名（默认为phub_template.html）
-
+        action: 操作类型 (generate, info, list, delete)
+        html_content: HTML网页内容（generate操作时必需）
+        filename: 文件名（info、delete操作时必需，可选的自定义文件名）
+        
     Returns:
-        生成的HTML内容或模板内容
+        操作结果文本
         
     Examples:
-        >>> # 生成HTML内容
-        >>> sections = [{
-        ...     "title": "章节标题",
-        ...     "content": "章节正文内容"
-        ... }]
-        >>> await wechat_template(action="generate", title="文章标题", sections=sections)
+        >>> # 生成静态网页
+        >>> html_content = "<html><body><h1>Hello World</h1></body></html>"
+        >>> await static_page(action="generate", html_content=html_content)
         
-        >>> # 获取模板内容
-        >>> await wechat_template(action="get_template", template_name="phub_template.html")
+        >>> # 使用自定义文件名生成静态网页
+        >>> await static_page(action="generate", html_content=html_content, filename="my_page")
+        
+        >>> # 获取文件信息
+        >>> await static_page(action="info", filename="abc123.html")
+        
+        >>> # 列出所有静态网页
+        >>> await static_page(action="list")
+        
+        >>> # 删除静态网页
+        >>> await static_page(action="delete", filename="abc123.html")
     """
     arguments = {}
     if action:
         arguments['action'] = action
-    if title:
-        arguments['title'] = title
-    if intro:
-        arguments['intro'] = intro
-    if image:
-        arguments['image'] = image
-    if warning:
-        arguments['warning'] = warning
-    if sections:
-        arguments['sections'] = sections
-    if tags:
-        arguments['tags'] = tags
-    if action_button:
-        arguments['actionButton'] = action_button
-    if footer:
-        arguments['footer'] = footer
-    if template_name:
-        arguments['templateName'] = template_name
-    return await handle_wechat_tool("wechat_template", arguments)
+    if html_content:
+        arguments['htmlContent'] = html_content
+    if filename:
+        arguments['filename'] = filename
+    return await handle_wechat_tool("static_page", arguments)
+
+# @mcp.tool()
+# async def wechat_template(action: str = None, title: str = None, intro: str = None, image: str = None, warning: str = None, sections: list = None, tags: list = None, action_button: dict = None, footer: list = None, template_name: str = None) -> str:
+#     """根据P站样式模板生成公众号文章HTML内容。当用户说'使用p站模板'或'使用phub模板'时，使用此工具根据提供的内容生成符合P站样式的HTML文章。
+# 
+#     Args:
+#         action: 操作类型 (generate, get_template)
+#         title: 文章标题
+#         intro: 文章介绍段落（可选）
+#         image: 顶部图片占位符文本（可选）
+#         warning: 警告提示文本（可选）
+#         sections: 文章章节列表
+#         tags: 标签列表（可选）
+#         actionButton: 行动按钮（可选）
+#         footer: 页脚文本列表（可选）
+#         templateName: 模板文件名（默认为phub_template.html）
+# 
+#     Returns:
+#         生成的HTML内容或模板内容
+#         
+#     Examples:
+#         >>> # 生成HTML内容
+#         >>> sections = [{
+#         ...     "title": "章节标题",
+#         ...     "content": "章节正文内容"
+#         ... }]
+#         >>> await wechat_template(action="generate", title="文章标题", sections=sections)
+#         
+#         >>> # 获取模板内容
+#         >>> await wechat_template(action="get_template", template_name="phub_template.html")
+#     """
+#     arguments = {}
+#     if action:
+#         arguments['action'] = action
+#     if title:
+#         arguments['title'] = title
+#     if intro:
+#         arguments['intro'] = intro
+#     if image:
+#         arguments['image'] = image
+#     if warning:
+#         arguments['warning'] = warning
+#     if sections:
+#         arguments['sections'] = sections
+#     if tags:
+#         arguments['tags'] = tags
+#     if action_button:
+#         arguments['actionButton'] = action_button
+#     if footer:
+#         arguments['footer'] = footer
+#     if template_name:
+#         arguments['templateName'] = template_name
+#     return await handle_wechat_tool("wechat_template", arguments)
 
 @mcp.tool()
 async def wechat_tool_call(tool_name: str, arguments: dict = None) -> str:
@@ -420,12 +484,12 @@ async def wechat_tool_call(tool_name: str, arguments: dict = None) -> str:
     Args:
         tool_name: 工具名称，支持的工具包括：
             - wechat_auth: 管理微信公众号认证配置和 Access Token
-            - wechat_media_upload: 上传和管理微信公众号临时素材
+            - wechat_temporary_media: 管理微信公众号临时素材
             - wechat_upload_img: 上传图文消息内所需的图片
             - wechat_permanent_media: 管理微信公众号永久素材
             - wechat_draft: 管理微信公众号图文草稿
             - wechat_publish: 管理微信公众号文章发布
-            - wechat_template: 根据P站样式模板生成公众号文章HTML内容
+            - wechat_template: 根据P站样式模板生成公众号文章HTML内容（已注释）
         arguments: 工具参数，根据不同的tool_name传入相应的参数
         
     Returns:
@@ -438,21 +502,35 @@ async def wechat_tool_call(tool_name: str, arguments: dict = None) -> str:
         ...     arguments={"action": "configure", "appId": "wx1234567890", "appSecret": "secret123456"}
         ... )
         
+        >>> # 调用临时素材工具上传图片
+        >>> await wechat_tool_call(
+        ...     tool_name="wechat_temporary_media",
+        ...     arguments={"action": "upload", "type": "image", "filePath": "/path/to/image.jpg"}
+        ... )
+        
         >>> # 调用草稿工具创建图文消息
-        >>> articles = [{
+        >>> article = {
         ...     "title": "文章标题",
         ...     "content": "文章内容",
-        ...     "thumbMediaId": "media_id_here"
-        ... }]
+        ...     "thumbMediaId": "media_id_here",
+        ...     "author": "作者姓名",
+        ...     "digest": "文章摘要"
+        ... }
         >>> await wechat_tool_call(
         ...     tool_name="wechat_draft",
-        ...     arguments={"action": "add", "articles": articles}
+        ...     arguments={"action": "add", "article": article}
         ... )
         
         >>> # 调用发布工具提交草稿
         >>> await wechat_tool_call(
         ...     tool_name="wechat_publish",
         ...     arguments={"action": "submit", "mediaId": "draft_media_id"}
+        ... )
+        
+        >>> # 调用发布工具获取列表（不返回content内容）
+        >>> await wechat_tool_call(
+        ...     tool_name="wechat_publish",
+        ...     arguments={"action": "list", "offset": 0, "count": 10, "noContent": True}
         ... )
         
         >>> # 调用模板工具生成HTML内容

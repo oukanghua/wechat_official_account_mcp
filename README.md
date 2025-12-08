@@ -20,6 +20,9 @@ WECHAT_APP_SECRET=your_app_secret
 MCP_TRANSPORT=http      # 传输模式: stdio(默认), http, sse
 MCP_HOST=0.0.0.0       # HTTP 服务器绑定地址
 MCP_PORT=3003          # HTTP 服务器端口
+
+# 静态网页服务器配置（可选）
+STATIC_PAGE_PORT=3004  # 静态网页HTTP服务器端口
 ```
 
 ### 启动服务器
@@ -33,7 +36,7 @@ python main.py
 ```bash
 export MCP_TRANSPORT=http
 python main.py
-# 访问: http://localhost:3003
+# 访问: http://localhost:3003/mcp
 ```
 
 #### Docker 部署
@@ -44,7 +47,7 @@ docker compose logs -f
 
 ---
 
-## 📖 详细功能说明
+## 📖 功能概览
 
 ### 账号类型支持
 
@@ -54,9 +57,11 @@ docker compose logs -f
 
 > **重要**：发布服务（`wechat_publish`）仅限认证的公众号和服务号使用。
 
-### MCP 工具
+---
 
-#### 1. 认证管理 (`wechat_auth`)
+## 🛠️ MCP 工具
+
+### 1. 认证管理 (`wechat_auth`)
 ```python
 # 登录认证
 wechat_auth(action="login")
@@ -65,97 +70,84 @@ wechat_auth(action="status")
 # 登出
 wechat_auth(action="logout")
 ```
+**功能**：配置微信公众号 AppID、AppSecret，获取和刷新 Access Token，查看当前配置
 
-**功能**：
-- 配置微信公众号 AppID、AppSecret
-- 获取和刷新 Access Token
-- 查看当前配置
-
-#### 2. 素材管理 (`wechat_media_upload`)
+### 2. 素材管理 (`wechat_temporary_media`)
 ```python
 # 上传临时素材
-wechat_media_upload(file_path="/path/to/image.jpg", media_type="image")
+wechat_temporary_media(file_path="/path/to/image.jpg", media_type="image")
 ```
+**功能**：上传临时素材（图片、语音、视频、缩略图），获取临时素材，支持文件路径或 Base64 编码数据上传
 
-**功能**：
-- 上传临时素材（图片、语音、视频、缩略图）
-- 获取临时素材
-- 支持文件路径或 Base64 编码数据上传
-
-#### 3. 图文消息图片上传 (`wechat_upload_img`)
+### 3. 图文消息图片上传 (`wechat_upload_img`)
 ```python
 # 上传图文消息所需图片
 wechat_upload_img(file_path="/path/to/image.jpg")
 ```
+**功能**：上传图文消息内所需的图片，不占用素材库限制，返回可直接使用的图片 URL
 
-**功能**：
-- 上传图文消息内所需的图片
-- 不占用素材库限制
-- 返回可直接使用的图片 URL
-
-#### 4. 永久素材管理 (`wechat_permanent_media`)
+### 4. 永久素材管理 (`wechat_permanent_media`)
 ```python
 # 获取永久媒体素材
 wechat_permanent_media(media_id="your_media_id")
 ```
+**功能**：上传、获取、删除永久素材，获取素材列表和统计信息，支持图片、语音、视频、缩略图、图文消息
 
-**功能**：
-- 上传、获取、删除永久素材
-- 获取素材列表和统计信息
-- 支持图片、语音、视频、缩略图、图文消息
-
-#### 5. 草稿管理 (`wechat_draft`)
+### 5. 草稿管理 (`wechat_draft`)
 ```python
 # 创建草稿
-wechat_draft(title="文章标题", content="文章内容")
+wechat_draft(article={
+    "title": "文章标题",
+    "content": "文章内容",
+    "cover_media_id": "media_id",
+    "author": "作者",
+    "digest": "摘要"
+})
 ```
+**功能**：创建、获取、删除、更新图文草稿，获取草稿列表和统计信息，支持多篇文章的草稿
 
-**功能**：
-- 创建、获取、删除、更新图文草稿
-- 获取草稿列表和统计信息
-- 支持多篇文章的草稿
-
-#### 6. 发布管理 (`wechat_publish`)
+### 6. 发布管理 (`wechat_publish`)
 ```python
 # 发布草稿到微信公众号
-wechat_publish(media_id="draft_media_id")
+wechat_publish(media_id="draft_media_id", no_content=True)
+
+# 获取发布列表（不返回content内容）
+wechat_publish(action="list", no_content=True)
 ```
+**功能**：发布草稿到微信公众号，获取发布状态，删除已发布文章，获取发布列表
 
-**功能**：
-- 发布草稿到微信公众号
-- 获取发布状态
-- 删除已发布文章
-- 获取发布列表
-- **权限要求**：仅认证的公众号和服务号可以使用发布功能
-
-#### 7. 模板工具 (`wechat_template`)
-```python
-# 使用P站样式模板
-wechat_template(action="use", template_name="phub_template", title="标题", content="内容")
-```
-
-**功能**：
-- 根据P站样式模板生成公众号文章HTML内容
-- 支持多种内容块：标题、章节、统计、引用、代码、进度条等
-- AI可以自动识别用户说"使用p站模板"或"使用phub模板"时使用此工具
-- 详见 [模板使用指南](docs/template_usage.md)
-
-#### 统一工具调用接口
+### 统一工具调用接口
 ```python
 # 使用通用接口调用任何工具
 wechat_tool_call(tool_name="wechat_auth", arguments={"action": "status"})
 ```
 
-### MCP 资源
+### 7. 静态网页管理 (`static_page`)
+```python
+# 生成随机命名静态网页
+static_page(action="generate", htmlContent="<html><body><h1>Hello World</h1></body></html>")
 
-#### P站样式模板 (`template://phub_template`)
-- P站（Pornhub）样式的公众号文章HTML模板
-- AI可以读取模板内容了解结构
-- 配合模板工具使用，生成符合样式的HTML文章
+# 生成自定义命名静态网页
+static_page(action="generate", htmlContent="<html><body><h1>Custom Page</h1></body></html>", filename="my_page")
 
----
+# 启动HTTP服务器（可选，服务会自动随主服务启动）
+static_page(action="start_server", port=3004)
 
-## 🔧 FastMCP 2.0 新特性
+# 查看服务器状态
+static_page(action="server_status")
+
+# 列出所有静态网页
+static_page(action="list")
+
+# 获取网页信息
+static_page(action="info", filename="my_page")
+
+# 删除静态网页
+static_page(action="delete", filename="my_page")
+```
+**功能**：动态生成静态HTML网页，通过HTTP服务器访问，支持随机命名和自定义命名，提供完整的网页管理功能
+
+## ⚙️ 部署配置
 
 ### 多传输协议支持
 
@@ -165,33 +157,9 @@ wechat_tool_call(tool_name="wechat_auth", arguments={"action": "status"})
 | `http` | HTTP REST API 模式 | Web 应用、API 集成 | `export MCP_TRANSPORT=http && python main.py` |
 | `sse` | 服务器发送事件模式 | 实时通知、流式响应 | `export MCP_TRANSPORT=sse && python main.py` |
 
-### 纯 FastMCP 2.0 实现
-- ✅ **单一框架**：完全基于 FastMCP 2.0 构建
-- ✅ **现代化API**：装饰器风格的简洁编程接口
-- ✅ **完整功能**：支持所有 MCP 工具和资源
+### Docker 部署
 
-### 环境变量配置
-
-```bash
-# MCP 服务器配置
-MCP_TRANSPORT=http      # 传输协议选择
-MCP_HOST=0.0.0.0       # 绑定地址（HTTP 模式）
-MCP_PORT=3003          # 端口（HTTP 模式）
-
-# 微信公众号配置
-WECHAT_APP_ID=your_app_id      # 微信应用 ID
-WECHAT_APP_SECRET=your_secret  # 微信应用密钥
-
-# 其他配置
-PYTHONUNBUFFERED=1    # 输出不缓冲
-PYTHONPATH=/app       # Python 模块路径
-```
-
----
-
-## 🐳 Docker 部署
-
-### 使用 Docker Compose（推荐）
+#### 使用 Docker Compose（推荐）
 ```bash
 # 构建并启动
 docker compose up -d
@@ -203,25 +171,10 @@ docker compose logs -f
 docker compose down
 ```
 
-### 环境变量配置
-在 `.env` 文件中配置环境变量：
-
-```env
-# 微信公众号配置
-WECHAT_APP_ID=your_app_id
-WECHAT_APP_SECRET=your_app_secret
-
-# FastMCP 2.0 配置
-MCP_TRANSPORT=http
-MCP_HOST=0.0.0.0
-MCP_PORT=3003
-```
-
-### Docker 健康检查
-服务自动配置健康检查：
-- 检测 HTTP 服务可用性
-- 30秒间隔检测
-- 失败时自动重启
+Docker 部署包含以下特性：
+- **自动健康检查**：30秒间隔检测服务可用性，失败时自动重启
+- **环境变量配置**：支持 `.env` 文件配置所有参数
+- **网络配置**：预配置网络和端口映射
 
 ---
 
@@ -242,14 +195,19 @@ wechat_official_account_mcp/
 │   ├── media.py           # 素材管理工具
 │   ├── draft.py           # 草稿管理工具
 │   ├── publish.py         # 发布工具
-│   └── template.py        # 模板工具
+│   ├── template.py        # 模板工具
+│   └── static_pages.py    # 静态网页管理工具
 ├── shared/                # 共享模块
 │   ├── storage/          # 存储管理
 │   │   ├── auth_manager.py     # 认证管理器
-│   │   └── storage_manager.py  # 存储管理器
+│   │   └── storage_manager.py  # 存储管理器（已扩展静态网页支持）
 │   └── utils/            # 工具类
-│       └── wechat_api_client.py # 微信 API 客户端
+│       ├── wechat_api_client.py # 微信 API 客户端
+│       └── static_page_server.py # 静态网页HTTP服务器
 ├── data/                  # 数据目录（持久化存储）
+│   ├── storage.db         # 存储数据库
+│   └── static_pages/      # 静态网页文件目录
+│       └── metadata.json  # 网页元数据文件
 └── logs/                  # 日志文件目录
 ```
 
@@ -285,7 +243,13 @@ wechat_official_account_mcp/
 
 对于 HTTP 模式，可以直接访问：
 ```bash
-curl http://localhost:8000/health
+# 健康检查
+curl http://localhost:3003/health
+
+# API 调用示例
+curl -X POST http://localhost:3003/tools/wechat_auth \
+  -H "Content-Type: application/json" \
+  -d '{"arguments": {"action": "status"}}'
 ```
 
 ---

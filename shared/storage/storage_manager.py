@@ -22,7 +22,8 @@ class StorageManager:
         """
         self.db_file = db_file
         self.data: Dict[str, Any] = {
-            'media': []  # 素材列表
+            'media': [],  # 素材列表
+            'static_pages': []  # 静态网页列表
         }
         self._load_data()
     
@@ -35,13 +36,15 @@ class StorageManager:
             try:
                 with open(self.db_file, 'r', encoding='utf-8') as f:
                     self.data = json.load(f)
-                    if 'media' not in self.data:
-                        self.data['media'] = []
+                if 'media' not in self.data:
+                    self.data['media'] = []
+                if 'static_pages' not in self.data:
+                    self.data['static_pages'] = []
             except Exception as e:
                 logger.error(f"加载存储数据失败: {e}")
-                self.data = {'media': []}
+                self.data = {'media': [], 'static_pages': []}
         else:
-            self.data = {'media': []}
+            self.data = {'media': [], 'static_pages': []}
     
     def _save_data(self):
         """保存数据"""
@@ -128,6 +131,80 @@ class StorageManager:
                 del self.data['media'][i]
                 self._save_data()
                 logger.info(f"删除素材信息: {media_id}")
+                return True
+        return False
+
+    # ========== 静态网页管理方法 ==========
+
+    def save_static_page(self, page_info: Dict[str, Any]):
+        """
+        保存静态网页信息
+        
+        Args:
+            page_info: 静态网页信息字典，包含 filename, filepath, created_at 等
+        """
+        filename = page_info.get('filename')
+        if not filename:
+            logger.warning("静态网页信息缺少 filename，跳过保存")
+            return
+
+        # 检查是否已存在
+        existing_index = None
+        for i, page in enumerate(self.data['static_pages']):
+            if page.get('filename') == filename:
+                existing_index = i
+                break
+
+        if existing_index is not None:
+            # 更新现有记录
+            self.data['static_pages'][existing_index].update(page_info)
+            logger.info(f"更新静态网页信息: {filename}")
+        else:
+            # 添加新记录
+            self.data['static_pages'].append(page_info)
+            logger.info(f"保存静态网页信息: {filename}")
+
+        self._save_data()
+
+    def get_static_page(self, filename: str) -> Optional[Dict[str, Any]]:
+        """
+        获取静态网页信息
+        
+        Args:
+            filename: 文件名
+            
+        Returns:
+            静态网页信息字典，如果不存在则返回 None
+        """
+        for page in self.data['static_pages']:
+            if page.get('filename') == filename:
+                return page
+        return None
+
+    def list_static_pages(self) -> List[Dict[str, Any]]:
+        """
+        列出所有静态网页
+        
+        Returns:
+            静态网页列表
+        """
+        return self.data['static_pages'].copy()
+
+    def delete_static_page(self, filename: str) -> bool:
+        """
+        删除静态网页信息
+        
+        Args:
+            filename: 文件名
+            
+        Returns:
+            是否删除成功
+        """
+        for i, page in enumerate(self.data['static_pages']):
+            if page.get('filename') == filename:
+                del self.data['static_pages'][i]
+                self._save_data()
+                logger.info(f"删除静态网页信息: {filename}")
                 return True
         return False
 

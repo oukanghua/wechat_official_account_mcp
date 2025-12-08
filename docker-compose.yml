@@ -21,12 +21,13 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: wechat_mcp_server
+    container_name: wechat_official_account_mcp
+    image: wechat_official_account_mcp:latest
     restart: unless-stopped
     ports:
       - "${MCP_PORT:-3003}:${MCP_PORT:-3003}"  # HTTP 模式端口映射
     volumes:
-      - ./data:/app/data  # 持久化数据（SQLite 数据库）
+      - ./data:/app/data  # 持久化数据
       - ./templates:/app/templates  # 模板文件
       - ./logs:/app/logs  # 日志文件
     environment:

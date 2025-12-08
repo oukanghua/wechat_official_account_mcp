@@ -52,10 +52,28 @@ def main():
         
         logger.info("微信公众号 MCP 服务器启动中...")
         
+        # 启动静态网页服务器
+        static_page_port = int(os.getenv('STATIC_PAGE_PORT', '3004'))
+        try:
+            from shared.utils.static_page_server import start_static_page_server
+            logger.info(f"启动静态网页HTTP服务器，端口: {static_page_port}")
+            success = start_static_page_server(static_page_port)
+            if success:
+                logger.info(f"静态网页服务器启动成功")
+                logger.info(f"访问地址: http://localhost:{static_page_port}")
+            else:
+                logger.warning("静态网页服务器启动失败")
+        except Exception as e:
+            logger.warning(f"静态网页服务器启动异常: {e}")
+        
         # 直接导入并运行 MCP 服务器
         logger.info("启动 MCP 服务器...")
-        import mcp_server
-        mcp_server.main()
+        try:
+            import mcp_server
+            mcp_server.main()
+        except Exception as e:
+            logger.error(f"MCP 服务器启动失败: {e}")
+            sys.exit(1)
         
     except KeyboardInterrupt:
         logger.info("收到中断信号，正在关闭服务器...")
