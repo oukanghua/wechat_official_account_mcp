@@ -52,10 +52,10 @@ def main():
         
         logger.info("微信公众号 MCP 服务器启动中...")
         
-        # 启动静态网页服务器
-        static_page_port = int(os.getenv('STATIC_PAGE_PORT', '3004'))
+        # 启动静态网页服务器 - 使用统一的WECHAT_SERVER_PORT
+        static_page_port = int(os.getenv('WECHAT_SERVER_PORT', '3004'))
         try:
-            from shared.utils.static_page_server import start_static_page_server
+            from shared.utils.web_server import start_static_page_server
             from tools.static_pages import StaticPageManager
             
             # 获取正确的路径

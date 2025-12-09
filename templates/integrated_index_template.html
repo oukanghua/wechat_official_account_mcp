@@ -112,7 +112,7 @@
             <div class="service-description">
                 管理和访问静态HTML网页，提供完整的静态网站托管功能。
             </div>
-            <a href="/pages/" class="service-link">访问页面列表</a>
+            <a href="{{context_path}}/pages/" class="service-link">访问页面列表</a>
         </div>
         
         <div class="service-card">
@@ -120,7 +120,7 @@
             <div class="service-description">
                 与AI助手进行实时对话，体验OpenAI驱动的智能回复功能。
             </div>
-            <a href="/chat" class="service-link">开始聊天</a>
+            <a href="{{context_path}}/chat" class="service-link">开始聊天</a>
         </div>
         
         <div class="service-card">
@@ -143,7 +143,7 @@
             <div class="page-item">
                 <div class="page-name">{{ page.filename }}</div>
                 <div class="page-meta">创建时间: {{ page.created_at }}</div>
-                <a href="/pages/{{ page.filename }}" class="page-link" target="_blank">访问页面</a>
+                <a href="{{context_path}}/pages/{{ page.filename }}" class="page-link" target="_blank">访问页面</a>
             </div>
             {% endfor %}
         {% else %}

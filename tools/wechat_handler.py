@@ -147,7 +147,7 @@ class WechatMessageHandler:
             
             # 从环境变量获取交互模式，默认为stream
             import os
-            interaction_mode = os.getenv('AI_INTERACTION_MODE', 'stream')
+            interaction_mode = os.getenv('OPENAI_INTERACTION_MODE', 'stream')
             
             # 根据交互模式调用AI服务
             if interaction_mode == 'stream':
