@@ -169,7 +169,7 @@ class AIService:
                         # 如果回复未完成且有内容，添加提示话语
                         if not complete and reply_content:
                             # 从环境变量获取提示话语
-                            prompt_text = os.getenv('STREAM_TIMEOUT_PROMPT', '\n\n（内容未完全生成，后续回复将继续完善）')
+                            prompt_text = os.getenv('OPENAI_STREAM_TIMEOUT_PROMPT', '\n\n（内容未完全生成，后续回复将继续完善）')
                             reply_content += prompt_text
                         
                         return reply_content

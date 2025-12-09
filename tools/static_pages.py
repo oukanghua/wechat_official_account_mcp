@@ -12,7 +12,7 @@ from datetime import datetime
 # 导入HTTP服务器
 # 导入HTTP服务器和存储管理器
 try:
-    from shared.utils.static_page_server import get_static_page_server, start_static_page_server
+    from shared.utils.web_server import get_static_page_server, start_static_page_server
 except ImportError:
     def get_static_page_server():
         return None
@@ -332,8 +332,7 @@ class StaticPageManager:
             是否启动成功
         """
         try:
-            from shared.utils.static_page_server import StaticPageServer
-            from shared.utils.static_page_handler import IntegratedStaticPageHandler
+            from shared.utils.web_server import IntegratedStaticPageServer
             
             # 创建集成服务器实例
             self.integrated_server = IntegratedStaticPageServer(

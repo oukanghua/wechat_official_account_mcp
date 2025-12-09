@@ -4,11 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI析数助手</title>
-    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+    <link rel="icon" type="image/x-icon" href="{{context_path}}/favicon.ico">
     <!-- Markdown渲染库 -->
-    <!--<script src="https://cdn.jsdelivr.net/npm/marked@12.0.1/lib/marked.umd.js"></script>-->
     <script src="https://cdn.bootcdn.net/ajax/libs/marked/16.3.0/lib/marked.umd.min.js"></script>
-    <!-- 备用markdown处理 -->
     <script>
         // 配置marked.js
         if (typeof marked !== 'undefined') {
@@ -26,168 +24,52 @@
                     .replace(/"/g, '&quot;')
                     .replace(/'/g, '&#39;');
             }
-            
-            // 创建完整的renderer实现
-            const renderer = {
-                // 自定义链接渲染
-                link: function(href, title, text) {
-                    const escapedHref = escapeHtml(String(href || ''));
-                    const titleAttr = title ? ' title="' + escapeHtml(String(title)) + '"' : '';
-                    const displayText = escapeHtml(String(text || href || ''));
-                    return '<a href="' + escapedHref + '"' + titleAttr + ' target="_blank" rel="noopener noreferrer">' + displayText + '</a>';
-                },
-                
-                // 自定义文本渲染
-                text: function(text) {
-                    return escapeHtml(String(text || ''));
-                },
-                
-                // 自定义段落渲染 - 确保空段落不生成占位符
-                paragraph: function(text) {
-                    // 确保text是字符串
-                    text = String(text || '');
-                    // 如果段落内容为空或只包含空格，返回空字符串
-                    if (!text.trim()) {
-                        return '';
-                    }
-                    return '<p>' + text + '</p>';
-                },
-                
-                // 自定义列表渲染 - 强制使用无序列表(ul)，无论markdown中是有序还是无序
-                list: function(body, ordered) {
-                    // 确保body是字符串
-                    body = String(body || '');
-                    // 如果列表内容为空，返回空字符串
-                    if (!body.trim()) {
-                        return '';
-                    }
-                    // 强制使用ul标签，忽略ordered参数
-                    return '<ul>' + body + '</ul>';
-                },
-                
-                // 自定义列表项渲染 - 确保空列表项不生成占位符，移除多余的<br>
-                listitem: function(text) {
-                    // 确保text是字符串
-                    text = String(text || '');
-                    // 如果列表内容为空或只包含空格，返回空字符串
-                    if (!text.trim()) {
-                        return '';
-                    }
-                    // 移除列表项中的<br>标签
-                    const cleanedText = text.replace(/<br\s*\/?>/gi, '');
-                    return '<li>' + cleanedText + '</li>';
-                }
-            };
-            
+            // 简化marked.js配置，使用默认renderer
             // 使用marked.use配置marked.js（v16推荐方式）
             marked.use({
                 breaks: true,     // 启用GFM换行符
                 gfm: true,        // 启用GitHub风味markdown
                 headerIds: false, // 禁用标题ID
                 mangle: false,    // 禁用邮箱地址混淆
-                sanitize: false,  // 禁用HTML清理（允许内联HTML）
-                linkify: true,    // 启用自动链接识别
-                renderer: renderer
+                linkify: true     // 启用自动链接识别
+                // 注意：sanitize选项在v16+已移除，不再支持
             });
-            
-            console.log('marked.js配置完成:', {
-                version: marked.version,
-                gfm: true,
-                breaks: true,
-                linkify: true
-            });
-        }
-
-        // 检查marked.js加载状态
-        window.addEventListener('load', function() {
-            console.log('marked.js 状态检查:', {
-                defined: typeof marked !== 'undefined',
-                parseDefined: typeof marked?.parse === 'function',
-                version: marked?.version || 'unknown',
-                configured: marked?.setOptions ? true : false
-            });
-        });
-        
-        // 辅助函数：提取对象的文本内容
-        function extractText(item) {
-            if (item === null || item === undefined) return '';
-            if (typeof item === 'string') return item;
-            if (typeof item === 'number' || typeof item === 'boolean') return String(item);
-            if (Array.isArray(item)) {
-                // 数组：处理每个元素，提取文本内容
-                return item.map(extractText).filter(text => text.trim()).join(' ');
-            } else if (typeof item === 'object') {
-                // 先尝试避免直接调用String(item)产生"[object Object]"
-                // 对象：优先处理常见的嵌套结构
-                if (item.delta && typeof item.delta === 'object') {
-                    return extractText(item.delta);
-                } else if (item.choices && Array.isArray(item.choices)) {
-                    return item.choices.map(extractText).filter(text => text.trim()).join(' ');
-                } else if (item.usage && typeof item.usage === 'object') {
-                    // 忽略usage对象，不提取文本
-                    return '';
-                }
-                
-                // 优先提取常见的内容字段
-                if (item.content) return extractText(item.content);
-                if (item.text) return extractText(item.text);
-                if (item.message) return extractText(item.message);
-                if (item.data) return extractText(item.data);
-                if (item.textContent) return extractText(item.textContent);
-                if (item.body) return extractText(item.body);
-                
-                // 如果是对象但没有直接的文本字段，尝试递归处理其所有属性
-                let result = [];
-                for (const [key, value] of Object.entries(item)) {
-                    if (value !== null && value !== undefined) {
-                        const extracted = extractText(value);
-                        // 确保提取的内容不是"[object Object]"
-                        if (extracted.trim() && extracted !== '[object Object]') {
-                            result.push(extracted);
-                        }
-                    }
-                }
-                return result.join(' ');
-            }
-            // 其他类型，转换为字符串
-            return String(item);
         }
 
         // 处理AI返回的内容，统一转换为可显示的HTML
-        function processAIContent(content) {
+        async function processAIContent(content) {
             // 1. 首先检查输入是否有效
-            if (content === null || content === undefined) {
+            if (content === null || content === undefined || content === '') {
                 return '';
             }
             
-            // 2. 确保内容是字符串类型并尝试解析JSON
+            // 2. 确保内容是字符串类型，提取有意义的文本
             let safeContent;
             if (typeof content === 'string') {
-                // 如果是字符串，先尝试解析为JSON对象
-                try {
-                    const trimmedContent = content.trim();
-                    if ((trimmedContent.startsWith('{') && trimmedContent.endsWith('}')) || 
-                        (trimmedContent.startsWith('[') && trimmedContent.endsWith(']'))) {
-                        // 尝试解析为JSON对象
-                        const jsonData = JSON.parse(content);
-                        // 提取实际内容
-                        safeContent = extractText(jsonData);
-                    } else {
-                        // 不是JSON格式，直接使用
-                        safeContent = content;
+                // 如果是字符串，直接使用
+                safeContent = content;
+            } else if (Array.isArray(content)) {
+                // 如果是数组，遍历提取内容
+                safeContent = content.map(item => {
+                    if (typeof item === 'string') return item;
+                    if (typeof item === 'object' && item !== null) {
+                        // 优先提取常见的内容字段
+                        return item.content || item.text || item.message || item.data || JSON.stringify(item);
                     }
-                } catch (e) {
-                    // JSON解析失败，直接使用原始字符串
-                    console.warn('processAIContent JSON解析失败，使用原始字符串:', e);
-                    safeContent = content;
-                }
-            } else if (Array.isArray(content) || typeof content === 'object') {
-                // 如果是数组或对象，尝试提取内容
-                try {
-                    safeContent = extractText(content);
-                } catch (e) {
-                    // 出错时转换为字符串
-                    console.warn('processAIContent提取内容失败:', e);
+                    return String(item);
+                }).filter(text => text.trim()).join(' ');
+            } else if (typeof content === 'object') {
+                // 如果是对象，提取内容
+                if (content.content && typeof content.content === 'string') {
+                    safeContent = content.content;
+                } else if (content.text && typeof content.text === 'string') {
+                    safeContent = content.text;
+                } else if (content.message && typeof content.message === 'string') {
+                    safeContent = content.message;
+                } else if (content.data && typeof content.data === 'string') {
+                    safeContent = content.data;
+                } else {
+                    // 尝试将对象转换为字符串
                     safeContent = JSON.stringify(content);
                 }
             } else {
@@ -196,24 +78,7 @@
             }
             
             // 3. 清理内容
-            safeContent = safeContent
-                // 移除所有[object Object]占位符
-                .replace(/\[object Object\]/g, '')
-                // 移除所有[内容]占位符
-                .replace(/\[内容\]/g, '')
-                // 移除所有HTML实体占位符 - 包括带有样式的span标签
-                .replace(/<span[^>]*>\s*\[内容\]\s*<\/span>/gi, '')
-                .replace(/<p[^>]*>\s*<span[^>]*>\s*\[内容\]\s*<\/span>\s*<\/p>/gi, '')
-                // 移除完整的<li><p><span>[内容]</span></p></li>结构，包括带有样式的span
-                .replace(/<li[^>]*>\s*<p[^>]*>\s*<span[^>]*>\s*\[内容\]\s*<\/span>\s*<\/p>\s*<\/li>/gi, '')
-                // 移除直接在<li>中的<span>[内容]</span>
-                .replace(/<li[^>]*>\s*<span[^>]*>\s*\[内容\]\s*<\/span>\s*<\/li>/gi, '')
-                // 移除直接在<p>中的[内容]
-                .replace(/<p[^>]*>\s*\[内容\]\s*<\/p>/gi, '')
-                // 移除直接在<li>中的[内容]
-                .replace(/<li[^>]*>\s*\[内容\]\s*<\/li>/gi, '')
-                // 移除多余空格
-                .trim();
+            safeContent = safeContent.trim();
             
             // 4. 检查清理后是否为空
             if (safeContent === '' || safeContent === 'null' || safeContent === 'undefined') {
@@ -221,20 +86,7 @@
             }
             
             // 5. 预处理markdown文本
-            let processedContent = safeContent
-                // 修复链接格式：移除markdown链接中的html标签和反引号
-                .replace(/\[(.*?)\]\(<a[^>]+>`([^<`]+)`<\/a>\)/g, '[$1]($2)')
-                .replace(/\[(.*?)\]\(<a[^>]+>([^<]+)<\/a>\)/g, '[$1]($2)')
-                // 修复单独的链接标签，移除反引号
-                .replace(/<a href="\s*`([^`]+)`\s*"/g, '<a href="$1"')
-                // 转换链接格式：链接： `url` -> [链接](url)
-                .replace(/链接：\s*`([^`]+)`/g, '[$1]($1)')
-                // 在数字编号前添加换行符，确保每个列表项独立成行
-                .replace(/(?!^)(\d+)\.\s+/g, '\n$1. ')
-                // 确保每个列表项结束后也有换行符
-                .replace(/(\d+)\.\s+([^\d]+)(?=(\d+\.\s+|$))/g, '$1. $2\n')
-                // 处理粗体标题
-                .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+            const processedContent = preprocessMarkdown(safeContent);
             
             // 6. 检查预处理后是否为空
             if (!processedContent) {
@@ -243,24 +95,29 @@
             
             // 7. 使用marked.js处理内容
             try {
-                let html = marked.parse(processedContent);
+                // 使用await处理marked.parse返回的Promise
+                // 确保processedContent是字符串
+                const safeProcessedContent = String(processedContent || '');
+                // 直接调用marked.parse，不使用await，因为marked.parse是同步的
+                let htmlResult = marked.parse(safeProcessedContent);
+                // 确保html是字符串类型，处理任何可能的返回类型
+                let html;
+                if (htmlResult === null || htmlResult === undefined) {
+                    html = '';
+                } else if (typeof htmlResult === 'string') {
+                    html = htmlResult;
+                } else {
+                    // 如果返回的是对象，尝试转换为字符串
+                    console.warn('marked.parse返回非字符串类型，转换为字符串:', htmlResult);
+                    html = String(htmlResult);
+                }
                 
-                // 8. 清理生成的HTML，移除所有空标签和占位符
+                // 8. 清理生成的HTML，特别处理[object Object]问题
                 html = html
-                    // 移除所有[内容]占位符 - 直接文本形式
-                    .replace(/\[内容\]/g, '')
-                    // 移除带有样式的<span>[内容]</span>
-                    .replace(/<span[^>]*>\s*\[内容\]\s*<\/span>/gi, '')
-                    // 移除<p><span>[内容]</span></p>结构
-                    .replace(/<p[^>]*>\s*<span[^>]*>\s*\[内容\]\s*<\/span>\s*<\/p>/gi, '')
-                    // 移除完整的<li><p><span>[内容]</span></p></li>结构，包括带有样式的span
-                    .replace(/<li[^>]*>\s*<p[^>]*>\s*<span[^>]*>\s*\[内容\]\s*<\/span>\s*<\/p>\s*<\/li>/gi, '')
-                    // 移除直接在<li>中的<span>[内容]</span>
-                    .replace(/<li[^>]*>\s*<span[^>]*>\s*\[内容\]\s*<\/span>\s*<\/li>/gi, '')
-                    // 移除直接在<p>中的[内容]
-                    .replace(/<p[^>]*>\s*\[内容\]\s*<\/p>/gi, '')
-                    // 移除直接在<li>中的[内容]
-                    .replace(/<li[^>]*>\s*\[内容\]\s*<\/li>/gi, '')
+                    // 首先移除包含[object Object]的整个段落
+                    .replace(/<p>\s*\[object\s+Object\]\s*<\/p>/gi, '')
+                    // 然后移除所有[object Object]文本
+                    .replace(/\[object\s+Object\]/gi, '')
                     // 将所有ol标签转换为ul标签
                     .replace(/<ol>/gi, '<ul>')
                     .replace(/<\/ol>/gi, '</ul>')
@@ -268,37 +125,105 @@
                     .replace(/<\/ul>\s*<ul>/gi, '')
                     // 移除空的段落标签
                     .replace(/<p>\s*<\/p>/gi, '')
-                    .replace(/<p>\s*<span[^>]*>\s*<\/span>\s*<\/p>/gi, '')
                     // 移除空的列表标签
                     .replace(/<ul>\s*<\/ul>/gi, '')
                     // 移除空的列表项
                     .replace(/<li>\s*<\/li>/gi, '')
-                    .replace(/<li>\s*<p>\s*<\/p>\s*<\/li>/gi, '')
-                    .replace(/<li>\s*<span[^>]*>\s*<\/span>\s*<\/li>/gi, '')
-                    // 确保列表项内没有多余的换行
-                    .replace(/<li>([\s\S]*?)<\/li>/gi, function(match, content) {
-                        return '<li>' + content.replace(/\n\s*/g, ' ').trim() + '</li>';
-                    })
-                    // 移除多余空格
+                    // 仅移除连续的空白字符，保留单个空格
+                    .replace(/\s{2,}/g, ' ')
                     .trim();
                 
-                // 9. 确保最终HTML不为空
+                // 9. 检查清理后的HTML是否有效
+                // 优化逻辑：允许包含合法HTML标签的内容通过验证，仅在完全为空或包含[object Object]时使用简化处理
+                const hasValidContent = html && html.length > 0;
+                const hasObjectContent = html.includes('[object Object]');
+                
+                if (!hasValidContent || hasObjectContent) {
+                    console.warn('marked.parse生成的HTML无效，使用简化处理');
+                    // 如果marked.js生成的HTML仍然无效，使用简化处理
+                    return simpleMarkdown(processedContent);
+                }
+                
+                // 10. 确保最终HTML不为空
                 return html || '';
             } catch (error) {
                 console.warn('Markdown解析失败，使用简化处理:', error);
-                
-                // 简化处理：只处理基本的文本格式
-                let simpleHtml = processedContent
-                    // 转换链接
-                    .replace(/https?:\/\/[^\s]+/g, '<a href="$&" target="_blank" rel="noopener noreferrer">$&</a>')
-                    // 转换粗体
-                    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-                    // 转换列表 - 使用ul标签
-                    .replace(/(\d+)\.\s+([^\n]+)/g, '<li>$1. $2</li>')
-                    .replace(/(<li>.*<\/li>)/g, '<ul>$1</ul>');
-                
-                return simpleHtml || '';
+                // 使用简化处理作为回退
+                return simpleMarkdown(processedContent);
             }
+        }
+
+        // 预处理markdown文本，转换特殊格式
+        function preprocessMarkdown(text) {
+            if (!text || typeof text !== 'string') return '';
+            
+            return text
+                // 转换链接格式：链接： `url` -> [url](url)
+                .replace(/链接：\s*`([^`]+)`/g, '[$1]($1)')
+                // 在数字编号前添加换行符，确保每个列表项独立成行
+                .replace(/(?!^)(\d+)\.\s+/g, '\n$1. ')
+                // 确保每个列表项结束后也有换行符
+                .replace(/(\d+)\.\s+([^\d]+)(?=(\d+\.\s+|$))/g, '$1. $2\n')
+                // 移除多余空行
+                .replace(/\n\s*\n/g, '\n')
+                .trim();
+        }
+
+        // 简化的markdown处理函数，作为marked.parse失败时的回退
+        function simpleMarkdown(text) {
+            // 确保输入是字符串
+            if (text === null || text === undefined) return '';
+            const safeText = String(text);
+            if (!safeText.trim()) return '';
+            
+            // 1. 处理代码块 (```code```)
+            let html = safeText.replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>');
+            
+            // 2. 处理标题 (#, ##, ###)
+            // 优化：支持标题不在行首的情况，如"文本## 标题"
+            // 优化：修复正则表达式，确保正确匹配各种前缀内容
+            // 优化：使用更精确的匹配，避免过度捕获
+            html = html.replace(/(.*?)(#{1,6})\s+([^\n#]+)/g, function(match, beforeTitle, hashes, content) {
+                const level = hashes.length;
+                return `${beforeTitle}<h${level}>${content.trim()}</h${level}>`;
+            });
+            
+            // 3. 处理引用 (> quote)
+            html = html.replace(/^(>\s+)([^\n]+)/gm, '<blockquote>$2</blockquote>');
+            
+            // 4. 处理粗体和斜体
+            html = html
+                .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+                .replace(/\*([^*]+)\*/g, '<em>$1</em>');
+            
+            // 5. 处理行内代码
+            html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+            
+            // 6. 处理链接
+            html = html
+                .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
+                .replace(/(https?:\/\/[^\s]+)/g, '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>');
+            
+            // 7. 处理列表
+            // 先处理无序列表
+            html = html.replace(/(^|\n)[-*+]\s+([^\n]+)/g, '$1<li>$2</li>');
+            // 再处理有序列表
+            html = html.replace(/(^|\n)(\d+)\.\s+([^\n]+)/g, '$1<li>$2. $3</li>');
+            // 包裹列表项
+            html = html.replace(/(<li>.*?<\/li>)/gs, '<ul>$1</ul>');
+            // 合并相邻列表
+            html = html.replace(/<\/ul>\s*<ul>/g, '');
+            
+            // 8. 处理换行
+            html = html.replace(/\n/g, '<br>');
+            
+            // 9. 移除多余空格和空标签
+            html = html.trim()
+                .replace(/<p>\s*<\/p>/gi, '')
+                .replace(/<ul>\s*<\/ul>/gi, '')
+                .replace(/<li>\s*<\/li>/gi, '');
+            
+            return html;
         }
     </script>
     <style>
@@ -373,7 +298,7 @@
         /* 配置按钮和清除按钮 */
         .config-toggle {
             position: absolute;
-            top: 20px;
+            top: 45px;
             right: 20px;
             background: rgba(255, 255, 255, 0.2);
             border: none;
@@ -391,7 +316,7 @@
 
         .clear-chat-btn {
             position: absolute;
-            top: 20px;
+            top: 45px;
             right: 120px;
             background: rgba(255, 255, 255, 0.2);
             border: none;
@@ -410,6 +335,129 @@
         .clear-chat-btn:disabled {
             background: rgba(255, 255, 255, 0.1);
             cursor: not-allowed;
+        }
+        /* 响应式设计 */
+        @media (max-width: 768px) {
+            body {
+                padding: 0;
+            }
+
+            .chat-container {
+                height: 100vh;
+                max-height: none;
+                border-radius: 0;
+            }
+
+            .chat-header {
+                padding: 15px;
+            }
+
+            .chat-header h1 {
+                font-size: 20px;
+            }
+
+            .chat-messages {
+                padding: 15px;
+            }
+
+            .message-content {
+                max-width: 85%;
+            }
+
+            .chat-input-container {
+                padding: 15px;
+            }
+
+            .quick-replies {
+                flex-direction: column;
+                align-items: center;
+            }
+
+            .config-panel {
+                position: absolute;
+                top: 0;
+                right: 0;
+                height: 100%;
+                z-index: 1000;
+                width: 0;
+                max-width: 350px;
+                padding: 0;
+                overflow-y: auto;
+            }
+
+            .config-panel.open {
+                width: 100%;
+                padding: 20px;
+            }
+
+            .clear-chat-btn {
+                right: 20px;
+                top: 70px;
+            }
+        }
+
+        /* 媒体查询：优化手机端显示 */
+        @media (max-width: 600px) {
+            /* 调整按钮样式，只显示图标 */
+            .clear-chat-btn,
+            .config-toggle {
+                padding: 0;
+                width: 25px;
+                height: 25px;
+                text-align: center;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                overflow: hidden;
+                position: absolute; /* 保持绝对定位 */
+                top: 15px;
+                margin: 0;
+            }
+
+            /* 调整清除按钮位置 */
+            .clear-chat-btn {
+                right: 40px;
+                top: 45px;
+            }
+            
+            .config-toggle {
+               right: 5px;
+               top: 45px; 
+            }
+            
+            /* 隐藏按钮文字，只显示图标 - 彻底隐藏原始内容 */
+            .clear-chat-btn,
+            .config-toggle {
+                font-size: 0;
+                line-height: 0;
+                text-indent: -9999px;
+                z-index: 10;
+            }
+            
+            /* 确保伪元素可见 */
+            .clear-chat-btn::before,
+            .config-toggle::before {
+                text-indent: 0;
+                display: block;
+            }
+            
+            /* 使用伪元素重新显示图标 */
+            .clear-chat-btn::before {
+                content: '🗑️';
+                font-size: 18px;
+                line-height: 1;
+            }
+            
+            .config-toggle::before {
+                content: '⚙️';
+                font-size: 18px;
+                line-height: 1;
+            }
+            
+            /* 隐藏欢迎消息中的快速回复按钮，节省空间 */
+            .quick-replies {
+                display: none;
+            }
         }
 
         /* 媒体查询：优化手机端显示 */
@@ -1001,67 +1049,7 @@
         .chat-messages::-webkit-scrollbar-thumb:hover,
         .config-panel::-webkit-scrollbar-thumb:hover {
             background: #a0aec0;
-        }
-
-        /* 响应式设计 */
-        @media (max-width: 768px) {
-            body {
-                padding: 0;
-            }
-
-            .chat-container {
-                height: 100vh;
-                max-height: none;
-                border-radius: 0;
-            }
-
-            .chat-header {
-                padding: 15px;
-            }
-
-            .chat-header h1 {
-                font-size: 20px;
-            }
-
-            .chat-messages {
-                padding: 15px;
-            }
-
-            .message-content {
-                max-width: 85%;
-            }
-
-            .chat-input-container {
-                padding: 15px;
-            }
-
-            .quick-replies {
-                flex-direction: column;
-                align-items: center;
-            }
-
-            .config-panel {
-                position: absolute;
-                top: 0;
-                right: 0;
-                height: 100%;
-                z-index: 1000;
-                width: 0;
-                max-width: 350px;
-                padding: 0;
-                overflow-y: auto;
-            }
-
-            .config-panel.open {
-                width: 100%;
-                padding: 20px;
-            }
-
-            .clear-chat-btn {
-                right: 20px;
-                top: 70px;
-            }
-        }
+        }       
     </style>
 </head>
 <body>
@@ -1163,8 +1151,8 @@
     <script>
         // 配置
         const CONFIG = {
-            apiEndpoint: '/chat/api/send',
-            configEndpoint: '/chat/api/config',
+            apiEndpoint: '{{context_path}}/chat/api/send',
+            configEndpoint: '{{context_path}}/chat/api/config',
             maxMessageLength: 1000,
             typingDelay: 50
         };
@@ -1194,11 +1182,11 @@
         const configForm = document.getElementById('configForm');
 
         // 初始化
-        document.addEventListener('DOMContentLoaded', function() {
+        document.addEventListener('DOMContentLoaded', async function() {
             messageInput.focus();
             setupEventListeners();
-            loadConfig();
-            loadChatHistory(); // 加载聊天历史记录
+            await loadConfig();
+            await loadChatHistory(); // 加载聊天历史记录
         });
 
         // 设置事件监听器
@@ -1254,7 +1242,7 @@
             }
 
             // 添加用户消息
-            addMessage(message, 'user');
+            await addMessage(message, 'user');
             messageInput.value = '';
             adjustTextareaHeight();
             updateSendButtonState();
@@ -1367,8 +1355,41 @@
                                     // 尝试解析为JSON对象
                                     const jsonData = JSON.parse(dataLine);
                                     
-                                    // 提取实际内容 - 使用全局的extractText函数
-                                    const extractedContent = extractText(jsonData);
+                                    // 提取内容的辅助函数
+                                    function extractContent(obj) {
+                                        if (typeof obj === 'string') {
+                                            return obj;
+                                        } else if (Array.isArray(obj)) {
+                                            // 如果是数组，递归提取每个元素的内容
+                                            return obj.map(extractContent).join('');
+                                        } else if (typeof obj === 'object' && obj !== null) {
+                                            // 处理不同的JSON结构
+                                            if (obj.delta && typeof obj.delta === 'object') {
+                                                return extractContent(obj.delta);
+                                            } else if (obj.choices && Array.isArray(obj.choices)) {
+                                                return obj.choices.map(extractContent).join('');
+                                            } else if (obj.content) {
+                                                return extractContent(obj.content);
+                                            } else if (obj.text) {
+                                                return extractContent(obj.text);
+                                            } else if (obj.message) {
+                                                return extractContent(obj.message);
+                                            } else {
+                                                // 遍历对象的所有属性，递归提取内容
+                                                let result = '';
+                                                for (const key in obj) {
+                                                    if (obj.hasOwnProperty(key)) {
+                                                        result += extractContent(obj[key]);
+                                                    }
+                                                }
+                                                return result;
+                                            }
+                                        }
+                                        return '';
+                                    }
+                                    
+                                    // 提取实际内容
+                                    const extractedContent = extractContent(jsonData);
                                     
                                     // 只有当提取到内容时才使用，否则作为普通文本处理
                                     if (extractedContent.trim()) {
@@ -1387,6 +1408,14 @@
                             }
                             
                             // 累积实际内容
+                            fullContent += contentChunk;
+                            
+                            // 确保contentChunk是字符串
+                            if (typeof contentChunk !== 'string') {
+                                contentChunk = JSON.stringify(contentChunk);
+                            }
+                            
+                            // 累积实际内容
                             // 确保contentChunk是字符串
                             if (typeof contentChunk !== 'string') {
                                 contentChunk = JSON.stringify(contentChunk);
@@ -1397,8 +1426,8 @@
                             renderThrottle++;
                             if (renderThrottle % 10 === 0 || fullContent.length < 50) {
                                 try {
-                                    // 使用新的内容处理函数
-                                    textDiv.innerHTML = processAIContent(fullContent);
+                                    // 使用新的内容处理函数，添加await处理异步函数
+                                    textDiv.innerHTML = await processAIContent(fullContent);
                                     scrollToBottom();
                                 } catch (error) {
                                     console.warn('Markdown parsing failed during streaming:', error);
@@ -1413,11 +1442,7 @@
 
                 // 最终渲染完整内容
                 try {
-                    // 确保fullContent是字符串类型
-                    if (typeof fullContent !== 'string') {
-                        fullContent = JSON.stringify(fullContent);
-                    }
-                    textDiv.innerHTML = processAIContent(fullContent);
+                    textDiv.innerHTML = await processAIContent(fullContent);
                     
                     // 将完整的AI回复添加到聊天历史
                     const aiMessageTime = new Date().toLocaleTimeString('zh-CN', {
@@ -1441,19 +1466,19 @@
 
             } catch (error) {
                 console.error('发送消息失败:', error);
-                addMessage('抱歉，发生错误，请稍后重试。', 'assistant');
+                await addMessage('抱歉，发生错误，请稍后重试。', 'assistant');
             } finally {
                 hideLoading();
             }
         }
 
         // 添加消息到聊天界面
-        function addMessage(content, sender) {
+        async function addMessage(content, sender) {
             const messageDiv = document.createElement('div');
             messageDiv.className = `message ${sender}`;
 
             const avatar = sender === 'user' ? '我' : 'AI';
-            const time = new Date().toLocaleTimeString('zh-CN', { 
+            const time = new Date().toLocaleTimeString('zh-CN', {
                 hour: '2-digit', 
                 minute: '2-digit' 
             });
@@ -1472,8 +1497,7 @@
             if (sender === 'assistant') {
                 // AI消息使用新的内容处理函数
                 try {
-                    // 直接传递内容给processAIContent函数，它会处理各种类型
-                    const processedContent = processAIContent(content);
+                    const processedContent = await processAIContent(content);
                     messageTextDiv.innerHTML = processedContent;
                 } catch (error) {
                     // 如果内容处理失败，使用备用处理函数
@@ -1532,13 +1556,6 @@
         // 滚动到底部
         function scrollToBottom() {
             chatMessages.scrollTop = chatMessages.scrollHeight;
-        }
-
-        // HTML转义
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
         }
 
         // 切换配置面板
@@ -1610,7 +1627,7 @@
                 if (result.success) {
                     // 重新加载配置
                     await loadConfig();
-                    addMessage('配置已保存，AI服务已更新！', 'assistant');
+                    await addMessage('配置已保存，AI服务已更新！', 'assistant');
                     toggleConfigPanel();
                 } else {
                     configStatus.innerHTML = `保存失败: ${result.error}`;
@@ -1676,7 +1693,7 @@
         }
 
         // 加载聊天记录
-        function loadChatHistory() {
+        async function loadChatHistory() {
             try {
                 const savedHistory = localStorage.getItem('chatHistory');
                 if (savedHistory) {
@@ -1690,9 +1707,9 @@
                         }
                         
                         // 恢复所有消息
-                        chatHistory.forEach(messageData => {
-                            restoreMessage(messageData);
-                        });
+                        for (const messageData of chatHistory) {
+                            await restoreMessage(messageData);
+                        }
                         
                         messageCount = chatHistory.length;
                         updateClearButtonState();
@@ -1705,12 +1722,12 @@
         }
 
         // 恢复单条消息
-        function restoreMessage(messageData) {
+        async function restoreMessage(messageData) {
             const messageDiv = document.createElement('div');
             messageDiv.className = `message ${messageData.sender}`;
 
             const avatar = messageData.sender === 'user' ? '我' : 'AI';
-
+            
             const messageContentDiv = document.createElement('div');
             messageContentDiv.className = 'message-content';
             
@@ -1725,8 +1742,7 @@
             if (messageData.sender === 'assistant') {
                 // AI消息使用新的内容处理函数
                 try {
-                    // 直接传递内容给processAIContent函数，它会处理各种类型
-                    const processedContent = processAIContent(messageData.content);
+                    const processedContent = await processAIContent(messageData.content);
                     messageTextDiv.innerHTML = processedContent;
                 } catch (error) {
                     console.warn('Markdown parsing failed during restore:', error);
@@ -1784,7 +1800,7 @@
             }
             
             try {
-                const response = await fetch('/api/validate-password', {
+                const response = await fetch('{{context_path}}/api/validate-password', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
