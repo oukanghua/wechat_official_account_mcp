@@ -1268,9 +1268,13 @@
                     throw new Error('Network response was not ok');
                 }
 
-                // 获取响应流
-                const reader = response.body.getReader();
-                const decoder = new TextDecoder('utf-8');
+                // 检查响应类型
+                const contentType = response.headers.get('content-type');
+                
+                // 处理SSE流式响应
+                if (contentType && contentType.includes('text/event-stream')) {
+                    const reader = response.body.getReader();
+                    const decoder = new TextDecoder('utf-8');
 
                 // 创建AI回复消息元素
                 const messageDiv = document.createElement('div');
@@ -1363,6 +1367,10 @@
                                             // 如果是数组，递归提取每个元素的内容
                                             return obj.map(extractContent).join('');
                                         } else if (typeof obj === 'object' && obj !== null) {
+                                            // 检查是否是结束标记的JSON结构 (success字段存在且message为空)
+                                            if (obj.hasOwnProperty('success') && obj.message === '') {
+                                                return '';
+                                            }
                                             // 处理不同的JSON结构
                                             if (obj.delta && typeof obj.delta === 'object') {
                                                 return extractContent(obj.delta);
@@ -1374,11 +1382,14 @@
                                                 return extractContent(obj.text);
                                             } else if (obj.message) {
                                                 return extractContent(obj.message);
+                                            } else if (obj.interaction_mode) {
+                                                // 跳过interaction_mode字段，避免出现多余的"stream"文本
+                                                return '';
                                             } else {
                                                 // 遍历对象的所有属性，递归提取内容
                                                 let result = '';
                                                 for (const key in obj) {
-                                                    if (obj.hasOwnProperty(key)) {
+                                                    if (obj.hasOwnProperty(key) && key !== 'interaction_mode') {
                                                         result += extractContent(obj[key]);
                                                     }
                                                 }
@@ -1408,18 +1419,6 @@
                             }
                             
                             // 累积实际内容
-                            fullContent += contentChunk;
-                            
-                            // 确保contentChunk是字符串
-                            if (typeof contentChunk !== 'string') {
-                                contentChunk = JSON.stringify(contentChunk);
-                            }
-                            
-                            // 累积实际内容
-                            // 确保contentChunk是字符串
-                            if (typeof contentChunk !== 'string') {
-                                contentChunk = JSON.stringify(contentChunk);
-                            }
                             fullContent += contentChunk;
                             
                             // 节流渲染：每10个字符渲染一次，确保性能
@@ -1463,6 +1462,40 @@
                 } catch (error) {
                     console.warn('Final markdown rendering failed:', error);
                 }
+            } else {
+                // 处理普通JSON响应
+                const responseData = await response.json();
+                let fullContent = responseData.content;
+                
+                // 确保content是字符串
+                if (typeof fullContent !== 'string') {
+                    fullContent = JSON.stringify(fullContent);
+                }
+                
+                // 渲染完整内容
+                try {
+                    textDiv.innerHTML = await processAIContent(fullContent);
+                    
+                    // 将完整的AI回复添加到聊天历史
+                    const aiMessageTime = new Date().toLocaleTimeString('zh-CN', {
+                        hour: '2-digit',
+                        minute: '2-digit'
+                    });
+                    const aiMessageData = {
+                        content: fullContent,
+                        sender: 'assistant',
+                        timestamp: new Date().toISOString(),
+                        time: aiMessageTime
+                    };
+                    chatHistory.push(aiMessageData);
+                    saveChatHistory();
+                    
+                    // 更新清除按钮状态
+                    updateClearButtonState();
+                } catch (error) {
+                    console.warn('Markdown rendering failed:', error);
+                }
+            }
 
             } catch (error) {
                 console.error('发送消息失败:', error);
@@ -1839,4 +1872,5 @@
     </script>
 </body>
 </html>
+
 

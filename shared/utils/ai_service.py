@@ -7,7 +7,7 @@ import json
 import logging
 import asyncio
 import httpx
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, AsyncGenerator
 
 # 加载环境变量
 from dotenv import load_dotenv
@@ -151,17 +151,30 @@ class AIService:
                                 except ValueError:
                                     logger.warning(f"WECHAT_AI_TIMEOUT 配置值无效: {wechat_timeout}，使用默认值 {timeout}秒")
                         elif source == "page":
-                            # 页面访问：不设置超时
-                            final_timeout = None  # None 表示不超时
+                            # 页面访问：设置较长的超时时间（30秒）
+                            page_timeout = os.getenv('OPENAI_TIMEOUT', '30')
+                            try:
+                                final_timeout = float(page_timeout)
+                            except ValueError:
+                                logger.warning(f"OPENAI_TIMEOUT 配置值无效: {page_timeout}，使用默认值 30秒")
                         
                         # 使用超时机制
                         try:
+                            # 创建任务
+                            stream_task = asyncio.create_task(collect_stream())
                             if final_timeout is None:
-                                await collect_stream()
+                                await stream_task
                             else:
-                                await asyncio.wait_for(collect_stream(), timeout=final_timeout)
+                                await asyncio.wait_for(stream_task, timeout=final_timeout)
                         except asyncio.TimeoutError:
                             logger.warning(f"流式响应超时（{final_timeout}秒），返回已接收内容")
+                            # 取消任务以避免资源泄漏
+                            if 'stream_task' in locals():
+                                stream_task.cancel()
+                                try:
+                                    await stream_task  # 等待任务被取消
+                                except asyncio.CancelledError:
+                                    pass
                         
                         # 构建最终回复
                         reply_content = ''.join(collected_content)
@@ -226,252 +239,205 @@ class AIService:
             logger.error(f"简单对话时发生错误: {e}")
             return f"对话失败: {str(e)}"
     
-    def get_config_info(self) -> Dict[str, Any]:
+    async def stream_chat(self, user_message: str, conversation_history: Optional[List[Dict[str, str]]] = None, source: str = "unknown") -> AsyncGenerator[str, None]:
         """
-        获取AI服务配置信息
+        流式对话模式
         
-        Returns:
-            配置信息字典
+        Args:
+            user_message: 用户消息
+            conversation_history: 对话历史（可选）
+            source: 请求来源，可选值："wechat"（公众号）、"page"（页面访问）、"unknown"（未知）
+            
+        Yields:
+            AI回复的内容片段
         """
-        return {
-            'api_url': self.api_url,
-            'api_key_configured': bool(self.api_key),
-            'model': self.model,
-            'system_prompt': self.system_prompt,
-            'max_tokens': self.max_tokens,
-            'temperature': self.temperature,
-            'timeout': self.timeout,
-            'is_configured': self.is_configured()
-        }
+        try:
+            if not self.is_configured():
+                yield "AI服务未配置，无法提供智能回复"
+                return
+            
+            # 构建完整的消息列表
+            messages = conversation_history or []
+            messages.append({"role": "user", "content": user_message})
+            
+            full_messages = [
+                {"role": "system", "content": self.system_prompt}
+            ] + messages
+            
+            # 验证消息格式
+            for msg in full_messages:
+                if not isinstance(msg, dict) or 'role' not in msg or 'content' not in msg:
+                    logger.error(f"无效的消息格式: {msg}")
+                    yield "消息格式错误"
+                    return
+            
+            # 调用OpenAI API
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                # 构建请求参数
+                request_params = {
+                    "model": self.model,
+                    "messages": full_messages,
+                    "max_tokens": self.max_tokens,
+                    "temperature": self.temperature,
+                    "stream": True
+                }
+                
+                # 流式调用
+                async with client.stream(
+                    "POST",
+                    f"{self.api_url.rstrip('/')}/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {self.api_key}",
+                        "Content-Type": "application/json"
+                    },
+                    json=request_params
+                ) as response:
+                    
+                    if response.status_code != 200:
+                        logger.error(f"AI API调用失败: {response.status_code} - {response.text}")
+                        yield f"AI服务暂时不可用: {response.status_code}"
+                        return
+                    
+                    # 处理流式响应
+                    collected_content = []
+                    
+                    async for line in response.aiter_lines():
+                        if line.startswith('data: ') and line != 'data: [DONE]':
+                            # 解析JSON数据
+                            try:
+                                data = json.loads(line[6:])  # 去掉 'data: ' 前缀
+                                if 'choices' in data and data['choices']:
+                                    delta = data['choices'][0].get('delta', {})
+                                    if 'content' in delta:
+                                        yield delta['content']
+                                        collected_content.append(delta['content'])
+                            except json.JSONDecodeError:
+                                continue
+                        elif line == 'data: [DONE]':
+                            break
+        except Exception as e:
+            logger.error(f"流式对话时发生错误: {e}")
+            yield f"对话失败: {str(e)}"
     
-    def save_config(self, api_url: str, api_key: str, model: str, system_prompt: str) -> bool:
+    def _load_config_from_file(self):
         """
-        保存配置到环境变量和文件
+        从配置文件加载配置
+        """
+        config_file = os.path.join(os.path.dirname(__file__), "..", "..", "config", "ai_config.json")
+        if os.path.exists(config_file):
+            try:
+                with open(config_file, "r", encoding="utf-8") as f:
+                    config = json.load(f)
+                    
+                # 更新配置
+                if "api_url" in config and not self.api_url:
+                    self.api_url = config["api_url"]
+                if "api_key" in config and not self.api_key:
+                    self.api_key = config["api_key"]
+                if "model" in config and not self.model:
+                    self.model = config["model"]
+                if "system_prompt" in config and not self.system_prompt:
+                    self.system_prompt = config["system_prompt"]
+                if "max_tokens" in config:
+                    self.max_tokens = config["max_tokens"]
+                if "temperature" in config:
+                    self.temperature = config["temperature"]
+                if "timeout" in config:
+                    self.timeout = config["timeout"]
+                    
+                logger.info(f"已从配置文件加载AI服务配置: {config_file}")
+            except Exception as e:
+                logger.error(f"从配置文件加载配置失败: {e}")
+    
+    def save_config(self, api_url: str, api_key: str, model: str, system_prompt: str, max_tokens: int = 1000, temperature: float = 0.7, timeout: float = 30.0) -> bool:
+        """
+        保存AI服务配置
         
         Args:
             api_url: API基础URL
             api_key: API密钥
             model: 模型名称
             system_prompt: 系统提示词
+            max_tokens: 最大Token数
+            temperature: 温度参数
+            timeout: 超时时间（秒）
             
         Returns:
             是否保存成功
         """
         try:
-            # 更新实例属性
-            if api_url:
-                self.api_url = api_url
-            if api_key:
-                self.api_key = api_key
-            if model:
-                self.model = model
-            if system_prompt:
-                self.system_prompt = system_prompt
-            
-            # 保存到环境变量（同时保存OPENAI_前缀和AI_前缀，保持兼容性）
-            os.environ['OPENAI_API_URL'] = self.api_url
-            os.environ['OPENAI_API_KEY'] = self.api_key
-            os.environ['OPENAI_MODEL'] = self.model
-            os.environ['OPENAI_PROMPT'] = self.system_prompt
-            os.environ['OPENAI_MAX_TOKENS'] = str(self.max_tokens)
-            os.environ['OPENAI_TEMPERATURE'] = str(self.temperature)
-            os.environ['OPENAI_TIMEOUT'] = str(self.timeout)
-            
-            # 兼容旧的AI_前缀
-            os.environ['AI_API_URL'] = self.api_url
-            os.environ['AI_API_KEY'] = self.api_key
-            os.environ['AI_MODEL'] = self.model
-            os.environ['AI_PROMPT'] = self.system_prompt
-            os.environ['AI_MAX_TOKENS'] = str(self.max_tokens)
-            os.environ['AI_TEMPERATURE'] = str(self.temperature)
-            os.environ['AI_TIMEOUT'] = str(self.timeout)
+            # 更新内存中的配置
+            self.api_url = api_url
+            self.api_key = api_key
+            self.model = model
+            self.system_prompt = system_prompt
+            self.max_tokens = max_tokens
+            self.temperature = temperature
+            self.timeout = timeout
             
             # 保存到配置文件
-            self._save_config_to_file()
+            config_file = os.path.join(os.path.dirname(__file__), "..", "..", "config", "ai_config.json")
+            os.makedirs(os.path.dirname(config_file), exist_ok=True)
             
-            logger.info("AI配置已保存")
-            return True
-        except Exception as e:
-            logger.error(f"保存AI配置失败: {e}")
-            return False
-    
-    def _get_config_file_path(self) -> str:
-        """
-        获取配置文件路径
-        
-        Returns:
-            配置文件路径
-        """
-        config_dir = os.path.join(os.path.dirname(__file__), "..", "..", "config")
-        os.makedirs(config_dir, exist_ok=True)
-        return os.path.join(config_dir, "ai_config.json")
-    
-    def _load_config_from_file(self):
-        """
-        从配置文件加载配置
-        只有当配置文件中的值不为空时才覆盖环境变量中的配置
-        """
-        try:
-            config_file = self._get_config_file_path()
-            if os.path.exists(config_file):
-                with open(config_file, "r", encoding="utf-8") as f:
-                    config = json.load(f)
-                    
-                # 更新配置，只有当配置文件中的值不为空时才覆盖
-                if "api_url" in config and config["api_url"]:
-                    self.api_url = config["api_url"]
-                if "api_key" in config and config["api_key"]:
-                    self.api_key = config["api_key"]
-                if "model" in config and config["model"]:
-                    self.model = config["model"]
-                if "system_prompt" in config and config["system_prompt"]:
-                    self.system_prompt = config["system_prompt"]
-                if "max_tokens" in config and config["max_tokens"] is not None:
-                    self.max_tokens = int(config["max_tokens"])
-                if "temperature" in config and config["temperature"] is not None:
-                    self.temperature = float(config["temperature"])
-                if "timeout" in config and config["timeout"] is not None:
-                    self.timeout = float(config["timeout"])
-                    
-                logger.info("从配置文件加载AI配置成功")
-        except Exception as e:
-            logger.error(f"从配置文件加载AI配置失败: {e}")
-    
-    def _save_config_to_file(self):
-        """
-        保存配置到文件
-        """
-        try:
-            config_file = self._get_config_file_path()
-            config = {
-                "api_url": self.api_url,
-                "api_key": self.api_key,
-                "model": self.model,
-                "system_prompt": self.system_prompt,
-                "max_tokens": self.max_tokens,
-                "temperature": self.temperature,
-                "timeout": self.timeout
+            config_data = {
+                "api_url": api_url,
+                "model": model,
+                "system_prompt": system_prompt,
+                "max_tokens": max_tokens,
+                "temperature": temperature,
+                "timeout": timeout
             }
             
             with open(config_file, "w", encoding="utf-8") as f:
-                json.dump(config, f, ensure_ascii=False, indent=2)
-                
-            logger.info("AI配置已保存到文件")
+                json.dump(config_data, f, ensure_ascii=False, indent=2)
+            
+            logger.info(f"AI服务配置已保存到: {config_file}")
+            return True
+            
         except Exception as e:
-            logger.error(f"保存AI配置到文件失败: {e}")
+            logger.error(f"保存AI服务配置失败: {e}")
+            return False
+    
+    def get_config_info(self) -> Dict[str, Any]:
+        """
+        获取当前配置信息
+        
+        Returns:
+            配置信息字典
+        """
+        return {
+            "api_url": self.api_url,
+            "api_key_configured": bool(self.api_key),
+            "model": self.model,
+            "system_prompt": self.system_prompt,
+            "max_tokens": self.max_tokens,
+            "temperature": self.temperature,
+            "timeout": self.timeout,
+            "is_configured": self.is_configured()
+        }
 
 
 # 全局AI服务实例
 _ai_service_instance = None
 
-def get_ai_service() -> AIService:
+
+def get_ai_service(api_url: Optional[str] = None, api_key: Optional[str] = None, 
+                   model: Optional[str] = None, system_prompt: Optional[str] = None) -> AIService:
     """
-    获取全局AI服务实例（单例模式）
+    获取全局AI服务实例
     
+    Args:
+        api_url: API基础URL
+        api_key: API密钥
+        model: 模型名称
+        system_prompt: 系统提示词
+        
     Returns:
         AI服务实例
     """
     global _ai_service_instance
+    
     if _ai_service_instance is None:
-        _ai_service_instance = AIService()
+        _ai_service_instance = AIService(api_url=api_url, api_key=api_key, model=model, system_prompt=system_prompt)
+    
     return _ai_service_instance
-
-
-# ========== 工具函数 ==========
-
-def handle_ai_tool(arguments: dict, ai_service: Optional[AIService] = None) -> str:
-    """
-    处理AI工具调用
-    
-    Args:
-        arguments: 工具参数
-        ai_service: AI服务实例（可选）
-        
-    Returns:
-        处理结果文本
-    """
-    try:
-        action = arguments.get('action')
-        
-        # 如果没有提供AI服务实例，使用全局实例
-        if ai_service is None:
-            ai_service = get_ai_service()
-        
-        if action == 'chat':
-            message = arguments.get('message', '')
-            if not message:
-                return "错误: 请提供消息内容"
-            
-            # 使用asyncio运行异步处理
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            try:
-                reply = loop.run_until_complete(ai_service.simple_chat(message))
-                return f"用户消息: {message}\nAI回复: {reply}"
-            finally:
-                loop.close()
-        
-        elif action == 'advanced_chat':
-            messages = arguments.get('messages', [])
-            if not messages:
-                return "错误: 请提供消息列表"
-            
-            # 使用asyncio运行异步处理
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            try:
-                reply = loop.run_until_complete(ai_service.get_reply(messages))
-                return f"AI回复: {reply}"
-            finally:
-                loop.close()
-        
-        elif action == 'config':
-            config_info = ai_service.get_config_info()
-            
-            lines = ["AI服务配置信息:\n"]
-            lines.append(f"API URL: {config_info['api_url'] or '未配置'}")
-            lines.append(f"API Key: {'已配置' if config_info['api_key_configured'] else '未配置'}")
-            lines.append(f"模型: {config_info['model']}")
-            lines.append(f"最大Token数: {config_info['max_tokens']}")
-            lines.append(f"温度参数: {config_info['temperature']}")
-            lines.append(f"超时时间: {config_info['timeout']}秒")
-            lines.append(f"服务状态: {'已配置' if config_info['is_configured'] else '未配置'}")
-            
-            return "\n".join(lines)
-        
-        elif action == 'test':
-            test_message = arguments.get('message', '你好，请介绍一下你自己')
-            
-            # 使用asyncio运行异步处理
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            try:
-                reply = loop.run_until_complete(ai_service.simple_chat(test_message))
-                return f"测试消息: {test_message}\nAI回复: {reply}"
-            finally:
-                loop.close()
-        
-        elif action == 'update_config':
-            # 更新配置
-            if 'api_url' in arguments:
-                ai_service.api_url = arguments['api_url']
-            if 'api_key' in arguments:
-                ai_service.api_key = arguments['api_key']
-            if 'model' in arguments:
-                ai_service.model = arguments['model']
-            if 'system_prompt' in arguments:
-                ai_service.system_prompt = arguments['system_prompt']
-            if 'max_tokens' in arguments:
-                ai_service.max_tokens = int(arguments['max_tokens'])
-            if 'temperature' in arguments:
-                ai_service.temperature = float(arguments['temperature'])
-            
-            return "AI服务配置更新成功"
-        
-        else:
-            return f"未知操作: {action}"
-    
-    except Exception as e:
-        error_msg = f"处理AI工具失败: {str(e)}"
-        logger.error(error_msg, exc_info=True)
-        return error_msg

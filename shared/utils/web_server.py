@@ -416,28 +416,80 @@ class StaticPageServer:
             # 获取AI服务实例
             ai_service = get_ai_service()
             
-            # 使用asyncio运行异步方法
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            try:
-                # 调用AI服务获取回复
-                ai_reply = loop.run_until_complete(
-                    ai_service.simple_chat(
-                        user_message=user_message,
-                        conversation_history=conversation_history,
-                        source="page",  # 来源标记为页面访问
-                        stream=interaction_mode == 'stream'  # 根据环境变量决定是否使用流式
+            if interaction_mode == 'stream':
+                # 流式响应处理 - 将异步生成器转换为同步可迭代对象
+                def generate():
+                    loop = None
+                    try:
+                        # 1. 创建事件循环
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                        
+                        # 2. 定义异步函数来处理流式响应
+                        async def fetch_stream():
+                            try:
+                                async for chunk in ai_service.stream_chat(
+                                    user_message=user_message,
+                                    conversation_history=conversation_history,
+                                    source="page"  # 来源标记为页面访问
+                                ):
+                                    yield chunk
+                            except Exception as e:
+                                logger.error(f"流式响应异常: {e}")
+                                raise
+                        
+                        # 3. 创建异步生成器
+                        async_gen = fetch_stream()
+                        
+                        # 4. 手动迭代异步生成器
+                        while True:
+                            try:
+                                # 使用事件循环运行单个异步操作
+                                chunk = loop.run_until_complete(async_gen.__anext__())
+                                # SSE格式: data: {chunk}
+                                yield f"data: {json.dumps({'success': True, 'message': chunk, 'interaction_mode': 'stream'})}\n\n"
+                            except StopAsyncIteration:
+                                # 数据传输完成
+                                break
+                            except Exception as e:
+                                logger.error(f"流式响应异常: {e}")
+                                # 发送错误信息
+                                yield f"data: {json.dumps({'error': str(e), 'success': False})}\n\n"
+                                break
+                    except Exception as e:
+                        logger.error(f"流式响应初始化异常: {e}")
+                        yield f"data: {json.dumps({'error': str(e), 'success': False})}\n\n"
+                    finally:
+                        # 确保事件循环被正确关闭
+                        if loop is not None:
+                            loop.close()
+                
+                # 返回SSE响应
+                return Response(generate(), mimetype='text/event-stream')
+            else:
+                # 阻塞模式处理
+                # 使用asyncio运行异步方法
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    # 调用AI服务获取回复
+                    ai_reply = loop.run_until_complete(
+                        ai_service.simple_chat(
+                            user_message=user_message,
+                            conversation_history=conversation_history,
+                            source="page",  # 来源标记为页面访问
+                            stream=False  # 阻塞模式
+                        )
                     )
-                )
-            finally:
-                loop.close()
-            
-            # 返回AI回复
-            return json.dumps({
-                'success': True,
-                'message': ai_reply,
-                'interaction_mode': interaction_mode
-            }), 200, {'Content-Type': 'application/json'}
+                finally:
+                    loop.close()
+                
+                # 返回AI回复
+                return json.dumps({
+                    'success': True,
+                    'message': ai_reply,
+                    'interaction_mode': interaction_mode
+                }), 200, {'Content-Type': 'application/json'}
             
         except Exception as e:
             logger.error(f"处理聊天API失败: {e}")
@@ -448,8 +500,27 @@ class StaticPageServer:
         try:
             # 获取请求数据
             data = request.get_json()
-            # 示例实现，仅返回成功响应
-            return json.dumps({'success': True, 'message': 'Config saved'}), 200, {'Content-Type': 'application/json'}
+            if not data:
+                return json.dumps({'error': '无效的请求数据'}), 400, {'Content-Type': 'application/json'}
+            
+            # 从请求数据中提取配置参数
+            api_url = data.get('api_url', '')
+            api_key = data.get('api_key', '')
+            model = data.get('model', '')
+            system_prompt = data.get('system_prompt', '')
+            
+            # 验证必要参数
+            if not all([api_url, api_key, model]):
+                return json.dumps({'error': '缺少必要的配置参数'}), 400, {'Content-Type': 'application/json'}
+            
+            # 获取AI服务实例并保存配置
+            ai_service = get_ai_service()
+            success = ai_service.save_config(api_url, api_key, model, system_prompt)
+            
+            if success:
+                return json.dumps({'success': True, 'message': '配置保存成功'}), 200, {'Content-Type': 'application/json'}
+            else:
+                return json.dumps({'error': '配置保存失败'}), 500, {'Content-Type': 'application/json'}
             
         except Exception as e:
             logger.error(f"处理配置保存请求失败: {e}")
