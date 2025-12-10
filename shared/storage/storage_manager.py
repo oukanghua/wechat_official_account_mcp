@@ -295,4 +295,36 @@ class StorageManager:
                 logger.info(f"删除静态网页信息: {filename}")
                 return True
         return False
+        
+    def get_static_storage_stats(self) -> Dict[str, Any]:
+        """
+        获取静态存储统计信息
+        
+        Returns:
+            包含文件数量、总大小、最早创建时间、最新创建时间的字典
+        """
+        pages = self.data['static_pages']
+        total_files = len(pages)
+        
+        if total_files == 0:
+            return {
+                'total_files': 0,
+                'total_size': 0,
+                'earliest_created': None,
+                'latest_created': None
+            }
+        
+        # 计算总文件大小
+        total_size = sum(page.get('file_size', 0) for page in pages)
+        
+        # 计算最早和最新创建时间
+        created_times = [page.get('created_at', '') for page in pages if page.get('created_at')]
+        created_times.sort()
+        
+        return {
+            'total_files': total_files,
+            'total_size': total_size,
+            'earliest_created': created_times[0] if created_times else None,
+            'latest_created': created_times[-1] if created_times else None
+        }
 

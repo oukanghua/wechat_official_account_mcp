@@ -320,6 +320,41 @@ class StaticPageManager:
                 "total": len(pages),
                 "pages": pages
             }
+            
+    def get_storage_stats(self) -> Dict[str, Any]:
+        """
+        获取静态存储统计信息
+        
+        Returns:
+            包含文件数量、总大小、最早创建时间、最新创建时间的字典
+        """
+        # 从存储管理器获取统计信息
+        stats = self.storage_manager.get_static_storage_stats()
+        
+        # 计算文件大小的友好显示
+        def format_file_size(size_bytes):
+            if size_bytes == 0:
+                return "0 B"
+            units = ['B', 'KB', 'MB', 'GB']
+            unit_index = 0
+            size = float(size_bytes)
+            
+            while size >= 1024 and unit_index < len(units) - 1:
+                size /= 1024
+                unit_index += 1
+            
+            return f"{size:.2f} {units[unit_index]}"
+        
+        # 格式化统计信息
+        formatted_stats = {
+            'total_files': stats['total_files'],
+            'total_size': format_file_size(stats['total_size']),
+            'total_size_bytes': stats['total_size'],
+            'earliest_created': stats['earliest_created'],
+            'latest_created': stats['latest_created']
+        }
+        
+        return formatted_stats
     
     def start_integrated_server(self, port: int = 3004) -> bool:
         """
@@ -481,7 +516,7 @@ def handle_static_page_tool(arguments: dict, static_page_manager: StaticPageMana
         
         elif action == 'start_server':
             port = arguments.get('port', 3004)
-            success = start_static_page_server(port=port)
+            success = start_static_page_server(port=port, static_page_manager=static_page_manager)
             
             if success:
                 return f"Web服务器启动成功！\n端口: {port}\n可通过 http://localhost:{port}/ 访问"

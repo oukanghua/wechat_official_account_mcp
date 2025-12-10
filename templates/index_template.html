@@ -129,7 +129,7 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1>🚀 静态网页服务</h1>
+            <h1>🚀 Web服务器</h1>
             <p>{{ subtitle }}</p>
         </div>
         
@@ -148,9 +148,31 @@
                 <span class="nav-link">开始聊天</span>
             </div>
         </div>
+
+        <div style="margin-top: 30px; background: white; border-radius: 12px; padding: 30px; box-shadow: 0 8px 32px rgba(0,0,0,0.1);">
+            <h2 style="margin-bottom: 20px; color: #2c3e50;">📊 静态存储信息</h2>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px;">
+                <div style="background: #f8f9fa; border-radius: 8px; padding: 20px; text-align: center;">
+                    <div style="font-size: 2rem; font-weight: bold; color: #3498db; margin-bottom: 5px;">{{ total_files }}</div>
+                    <div style="color: #6c757d;">文件数量</div>
+                </div>
+                <div style="background: #f8f9fa; border-radius: 8px; padding: 20px; text-align: center;">
+                    <div style="font-size: 2rem; font-weight: bold; color: #2ecc71; margin-bottom: 5px;">{{ total_size }}</div>
+                    <div style="color: #6c757d;">总文件大小</div>
+                </div>
+                <div style="background: #f8f9fa; border-radius: 8px; padding: 20px; text-align: center;">
+                    <div style="font-size: 1.2rem; font-weight: bold; color: #9b59b6; margin-bottom: 5px;">{{ earliest_created }}</div>
+                    <div style="color: #6c757d;">最早创建时间</div>
+                </div>
+                <div style="background: #f8f9fa; border-radius: 8px; padding: 20px; text-align: center;">
+                    <div style="font-size: 1.2rem; font-weight: bold; color: #e74c3c; margin-bottom: 5px;">{{ latest_created }}</div>
+                    <div style="color: #6c757d;">最新创建时间</div>
+                </div>
+            </div>
+        </div>
         
         <div class="footer">
-            <p>© 2024 静态网页服务系统 | 基于Python Web服务器构建</p>
+            <p>© 2025 网页服务系统 | 基于Python Web服务器构建</p>
         </div>
     </div>
     

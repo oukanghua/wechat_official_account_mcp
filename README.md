@@ -71,7 +71,7 @@ python main.py
 # 访问介绍页
 # URL: http://localhost:3004/contextPath/
 # 访问聊天界面
-# URL: http://localhost:3004/contextPath/chat
+# URL: http://localhost:3004/contextPath/chat/
 ```
 
 #### 调用优化的聊天 API

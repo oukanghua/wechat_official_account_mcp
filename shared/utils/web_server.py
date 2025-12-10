@@ -33,51 +33,199 @@ def my_render_template(template_path: str, variables: Dict[str, Any]) -> str:
         with open(template_path, 'r', encoding='utf-8') as f:
             template = f.read()
         
-        # 简单的变量替换
-        def replace_var(match):
-            var_name = match.group(1)
-            return str(variables.get(var_name, ''))
+        # 处理带默认值的变量替换
+        # 正则表达式匹配 {{ variable or 'default' }} 或 {{ variable or "default" }}
+        def replace_default_var(match):
+            var_name = match.group(1).strip()
+            default_value = match.group(2).strip()
+            # 移除默认值的引号
+            if (default_value.startswith("'") and default_value.endswith("'") or \
+               (default_value.startswith('"') and default_value.endswith('"'))):
+                default_value = default_value[1:-1]
+            # 处理点表示法，支持嵌套dict和对象属性
+            try:
+                value = variables
+                for part in var_name.split('.'):
+                    if isinstance(value, dict):
+                        value = value.get(part)
+                    elif hasattr(value, part):
+                        value = getattr(value, part)
+                    else:
+                        value = None
+                        break
+                    if value is None:
+                        break
+                return str(value) if value is not None else default_value
+            except (AttributeError, TypeError):
+                return default_value
         
-        # 替换 {{ variable }}
-        html = re.sub(r'\{\{\s*(\w+)\s*\}\}', replace_var, template)
+        # 处理普通变量替换（包括点表示法）
+        def replace_regular_var(match):
+            var_name = match.group(1).strip()
+            # 处理点表示法，如 page.filename，支持嵌套dict和对象属性
+            try:
+                value = variables
+                for part in var_name.split('.'):
+                    if isinstance(value, dict):
+                        value = value.get(part)
+                    elif hasattr(value, part):
+                        value = getattr(value, part)
+                    else:
+                        value = None
+                        break
+                    if value is None:
+                        break
+                return str(value) if value is not None else ''
+            except (AttributeError, TypeError):
+                return ''
+        
+        # 简单的条件判断处理，支持点表示法
+        def replace_if(match):
+            condition = match.group(1).strip()
+            if_content = match.group(2)
+            
+            # 处理点表示法的条件变量，例如 pagination_html
+            try:
+                value = variables
+                for part in condition.split('.'):
+                    if isinstance(value, dict):
+                        value = value.get(part)
+                    else:
+                        value = getattr(value, part, None)
+                    if value is None:
+                        break
+                
+                # 检查值是否为真（非None、非空字符串、非空列表等）
+                if value:
+                    return if_content
+                return ""
+            except (AttributeError, TypeError):
+                return ""
         
         # 简单的循环处理（for page in pages_info）
         def replace_for_loop(match):
-            loop_content = match.group(1)
-            loop_var = match.group(2)
-            items = variables.get(loop_var, [])
+            loop_var = match.group(1)
+            list_var = match.group(2)
+            loop_content = match.group(3)
+            
+            # 获取循环数据
+            try:
+                items = variables
+                for part in list_var.split('.'):
+                    if isinstance(items, dict):
+                        items = items.get(part)
+                    else:
+                        items = getattr(items, part, None)
+                    if items is None:
+                        break
+                items = items or []
+            except (AttributeError, TypeError):
+                items = []
             
             result = ""
             for item in items:
                 # 为每个item创建上下文
                 item_context = variables.copy()
-                item_context.update(item)
+                item_context[loop_var] = item
                 
                 # 替换item中的变量
                 item_html = loop_content
-                for key, value in item.items():
-                    item_html = item_html.replace(f"{{{{ {key} }}}}", str(value))
+                
+                # 先处理item中的带默认值变量
+                def replace_item_default_var(match):
+                    var_name = match.group(1).strip()
+                    default_value = match.group(2).strip()
+                    # 移除默认值的引号
+                    if (default_value.startswith("'") and default_value.endswith("'") or \
+                       (default_value.startswith('"') and default_value.endswith('"'))):
+                        default_value = default_value[1:-1]
+                    # 从item_context中获取值
+                    try:
+                        value = item_context
+                        for part in var_name.split('.'):
+                            if isinstance(value, dict):
+                                value = value.get(part)
+                            elif hasattr(value, part):
+                                value = getattr(value, part)
+                            else:
+                                value = None
+                                break
+                            if value is None:
+                                break
+                        return str(value) if value is not None else default_value
+                    except (AttributeError, TypeError):
+                        return default_value
+                
+                item_html = re.sub(r'\{\{\s*([\w.]+)\s*or\s*([^}]+)\s*\}\}', replace_item_default_var, item_html)
+                
+                # 然后处理item中的普通变量（包括点表示法）
+                def replace_item_var(match):
+                    var_name = match.group(1).strip()
+                    try:
+                        value = item_context
+                        for part in var_name.split('.'):
+                            if isinstance(value, dict):
+                                value = value.get(part)
+                            elif hasattr(value, part):
+                                value = getattr(value, part)
+                            else:
+                                value = None
+                                break
+                            if value is None:
+                                break
+                        return str(value) if value is not None else ''
+                    except (AttributeError, TypeError):
+                        return ''
+                
+                item_html = re.sub(r'\{\{\s*([\w.]+)\s*\}\}', replace_item_var, item_html)
+                
                 result += item_html
             
             return result
         
-        # 处理 {% for page in pages_info %} ... {% endfor %}
-        html = re.sub(r'\{\%\s*for\s+(\w+)\s+in\s+(\w+)\s*\%\}(.*?)\{\%\s*endfor\s*\%\}', 
-                     replace_for_loop, html, flags=re.DOTALL)
+        # 渲染顺序：先处理循环，再处理变量替换，最后处理条件判断
+        # 1. 先处理循环
+        html = re.sub(r'\{\%\s*for\s+(\w+)\s+in\s+([\w.]+)\s*\%\}(.*?)\{\%\s*endfor\s*\%\}', 
+                     replace_for_loop, template, flags=re.DOTALL)
         
-        # 简单的条件判断处理
-        def replace_if(match):
+        # 2. 处理模板级别的变量（非循环内的）
+        html = re.sub(r'\{\{\s*([\w.]+)\s*or\s*([^}]+)\s*\}\}', replace_default_var, html)
+        html = re.sub(r'\{\{\s*([\w.]+)\s*\}\}', replace_regular_var, html)
+        
+        # 3. 处理条件判断（支持点表示法）
+        # 先处理有else的情况
+        def replace_if_with_else(match):
             condition = match.group(1).strip()
             if_content = match.group(2)
+            else_content = match.group(3)
             
-            # 简单的条件判断：检查变量是否存在且不为空
-            var_name = condition.replace(' not ', ' not ').replace(' and ', ' and ').replace(' or ', ' or ')
-            if var_name in variables and variables[var_name]:
-                return if_content
-            return ""
+            # 处理点表示法的条件变量，例如 pagination_html
+            try:
+                value = variables
+                for part in condition.split('.'):
+                    if isinstance(value, dict):
+                        value = value.get(part)
+                    elif hasattr(value, part):
+                        value = getattr(value, part)
+                    else:
+                        value = None
+                        break
+                    if value is None:
+                        break
+                
+                # 检查值是否为真（非None、非空字符串、非空列表等）
+                if value:
+                    return if_content
+                return else_content
+            except (AttributeError, TypeError):
+                return else_content
         
-        # 处理 {% if condition %} ... {% endif %}
-        html = re.sub(r'\{\%\s*if\s+(\w+)\s*\%\}(.*?)\{\%\s*endif\s*\%\}', 
+        # 处理有else的条件判断
+        html = re.sub(r'\{\%\s*if\s+([\w.]+)\s*\%\}(.*?)\{\%\s*else\s*\%\}(.*?)\{\%\s*endif\s*\%\}', 
+                     replace_if_with_else, html, flags=re.DOTALL)
+        
+        # 处理没有else的条件判断
+        html = re.sub(r'\{\%\s*if\s+([\w.]+)\s*\%\}(.*?)\{\%\s*endif\s*\%\}', 
                      replace_if, html, flags=re.DOTALL)
         
         return html
@@ -171,12 +319,15 @@ class StaticPageServer:
         try:
             # 路由处理
             if path == '/':
-                # 首页：列出所有可用页面
+                # 首页：显示静态存储信息
                 return self._generate_index_page()
+            elif path == '/static-pages/':
+                # 静态网页列表页面
+                return self._generate_static_pages_list()
             elif path.startswith('/pages/'):
                 # 访问静态网页：/pages/filename.html
                 return self._handle_static_page(path)
-            elif path == '/chat':
+            elif path == '/chat/':
                 # 聊天界面
                 return self._handle_chat_interface()
             elif path == '/api/config' or path == '/chat/api/config':
@@ -257,8 +408,34 @@ class StaticPageServer:
                     metadata = json.load(f)
                     pages = list(metadata.values())
             
-            # 按创建时间排序
-            pages.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+            # 获取存储统计信息
+            stats = {
+                'total_files': len(pages),
+                'total_size': sum(page.get('file_size', 0) for page in pages),
+                'earliest_created': None,
+                'latest_created': None
+            }
+            
+            if pages:
+                created_times = [page.get('created_at', '') for page in pages if page.get('created_at')]
+                created_times.sort()
+                if created_times:
+                    stats['earliest_created'] = created_times[0]
+                    stats['latest_created'] = created_times[-1]
+            
+            # 格式化文件大小
+            def format_file_size(size_bytes):
+                if size_bytes == 0:
+                    return "0 B"
+                units = ['B', 'KB', 'MB', 'GB']
+                unit_index = 0
+                size = float(size_bytes)
+                
+                while size >= 1024 and unit_index < len(units) - 1:
+                    size /= 1024
+                    unit_index += 1
+                
+                return f"{size:.2f} {units[unit_index]}"
             
             # 获取模板路径
             template_path = Path(__file__).parent.parent.parent / "templates" / "index_template.html"
@@ -268,44 +445,15 @@ class StaticPageServer:
                 'title': '静态网页服务',
                 'subtitle': '生成和管理静态HTML网页的HTTP访问服务',
                 'pages_url': f'{self.context_path}/pages/',
-                'chat_url': f'{self.context_path}/chat'
+                'chat_url': f'{self.context_path}/chat',
+                'total_files': stats['total_files'],
+                'total_size': format_file_size(stats['total_size']),
+                'earliest_created': stats['earliest_created'],
+                'latest_created': stats['latest_created']
             }
             
             # 使用模板渲染 - 传递字典参数
             html = my_render_template(str(template_path), template_vars)
-            
-            # 添加页面列表（简单的字符串替换方式）
-            page_items = ""
-            if not pages:
-                page_items = '<div style="text-align: center; color: #999; padding: 40px;">暂无静态网页</div>'
-            else:
-                for page in pages:
-                    filename = page.get('filename', '')
-                    created_at = page.get('created_at', '')
-                    file_size = page.get('file_size', 0)
-                    
-                    page_items += f"""                <div class="page-item">
-                    <div class="page-title">{filename}</div>
-                    <div class="page-meta">
-                        创建时间: {created_at} | 
-                        文件大小: {file_size} 字节
-                    </div>
-                    <a href="{self.context_path}/pages/{filename}" class="page-link" target="_blank">访问页面</a>
-                </div>
-"""
-            
-            # 在页面内容中添加页面列表
-            if '</div>' in html and '<div class="nav-grid">' in html:
-                # 在导航卡片后面插入页面列表
-                html = html.replace('</div>\n        \n        <div class="footer">', 
-                                   f'''</div>
-        
-        <div style="margin-top: 30px; background: white; border-radius: 12px; padding: 30px; box-shadow: 0 8px 32px rgba(0,0,0,0.1);">
-            <h2 style="margin-bottom: 20px; color: #2c3e50;">📂 静态网页列表</h2>
-            {page_items}
-        </div>
-        
-        <div class="footer">''')
             
             return html, 200, {'Content-Type': 'text/html; charset=utf-8'}
             
@@ -690,64 +838,169 @@ class IntegratedStaticPageServer(StaticPageServer):
         super().__init__(pages_dir=pages_dir, port=port)
         self.static_page_manager = static_page_manager
     
-    def _generate_index_page(self):
-        """生成索引页面 - 集成版本"""
+    def _generate_static_pages_list(self):
+        """生成静态网页列表页面，包含页面头、分页显示和美化列表"""
         try:
-            # 使用静态页面管理器获取页面列表
+            from pathlib import Path
+            
+            # 默认分页参数
+            page = 1
+            per_page = 10
+            
+            # 获取页面列表
             pages = []
             if self.static_page_manager:
                 pages_info = self.static_page_manager.list_pages()
                 pages = pages_info.get('pages', [])
             
-            # 按创建时间排序
+            # 按创建时间倒序排序
             pages.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+            
+            # 计算总页数
+            total_pages = (len(pages) + per_page - 1) // per_page
+            
+            # 获取当前页的数据
+            start = (page - 1) * per_page
+            end = start + per_page
+            current_pages = pages[start:end]
+            
+            # 格式化文件大小的辅助函数
+            def format_file_size(size_bytes):
+                if size_bytes == 0:
+                    return "0 B"
+                units = ['B', 'KB', 'MB', 'GB']
+                unit_index = 0
+                size = float(size_bytes)
+                
+                while size >= 1024 and unit_index < len(units) - 1:
+                    size /= 1024
+                    unit_index += 1
+                
+                return f"{size:.2f} {units[unit_index]}"
+            
+            # 计算总文件大小
+            total_file_size = sum(page.get('current_size', 0) for page in pages)
+            total_size_formatted = format_file_size(total_file_size)
+            
+            # 格式化每个页面的文件大小
+            for page in current_pages:
+                file_size = page.get('current_size', 0)
+                page['file_size_formatted'] = format_file_size(file_size)
+            
+            # 生成分页HTML
+            pagination_html = ""
+            if total_pages > 1:
+                pagination_html = "<div class='pagination'>"
+                
+                # 上一页
+                if page > 1:
+                    pagination_html += f"<a href='{self.context_path}/static-pages/?page={page-1}' class='page-btn prev'>上一页</a>"
+                else:
+                    pagination_html += "<span class='page-btn prev disabled'>上一页</span>"
+                
+                # 页码按钮
+                for i in range(1, total_pages + 1):
+                    if i == page:
+                        pagination_html += f"<span class='page-btn current'>{i}</span>"
+                    else:
+                        pagination_html += f"<a href='{self.context_path}/static-pages/?page={i}' class='page-btn'>{i}</a>"
+                
+                # 下一页
+                if page < total_pages:
+                    pagination_html += f"<a href='{self.context_path}/static-pages/?page={page+1}' class='page-btn next'>下一页</a>"
+                else:
+                    pagination_html += "<span class='page-btn next disabled'>下一页</span>"
+                
+                pagination_html += "</div>"
+            
+            # 获取模板路径
+            template_path = Path(__file__).parent.parent.parent / "templates" / "static_pages_template.html"
+            
+            # 准备模板变量，确保所有变量都有值
+            template_vars = {
+                'context_path': self.context_path,
+                'total_files': len(pages),
+                'total_size': total_size_formatted,
+                'pages_info': current_pages,
+                'pagination_html': pagination_html
+            }
+            logger.debug(f"静态网页列表模板变量: {template_vars}")
+            
+            # 使用模板渲染
+            html = my_render_template(str(template_path), template_vars)
+            
+            return html, 200, {'Content-Type': 'text/html; charset=utf-8'}
+            
+        except Exception as e:
+            logger.error(f"生成静态网页列表页面失败: {e}")
+            return "<h1>错误</h1><p>无法加载静态网页列表</p>", 500
+            
+    def _generate_index_page(self):
+        """生成索引页面 - 集成版本"""
+        try:
+            # 使用静态页面管理器获取存储统计信息
+            stats = {
+                'total_files': 0,
+                'total_size': '0 B',
+                'earliest_created': None,
+                'latest_created': None
+            }
+            
+            if self.static_page_manager:
+                # 尝试使用静态页面管理器的统计信息方法
+                try:
+                    stats = self.static_page_manager.get_storage_stats()
+                except AttributeError:
+                    # 回退方案：如果没有get_storage_stats方法，手动计算
+                    pages_info = self.static_page_manager.list_pages()
+                    pages = pages_info.get('pages', [])
+                    stats = {
+                        'total_files': len(pages),
+                        'total_size': sum(page.get('current_size', 0) for page in pages),
+                        'earliest_created': None,
+                        'latest_created': None
+                    }
+                    
+                    if pages:
+                        created_times = [page.get('created_at', '') for page in pages if page.get('created_at')]
+                        created_times.sort()
+                        if created_times:
+                            stats['earliest_created'] = created_times[0]
+                            stats['latest_created'] = created_times[-1]
+                        
+                    # 格式化文件大小
+                    def format_file_size(size_bytes):
+                        if size_bytes == 0:
+                            return "0 B"
+                        units = ['B', 'KB', 'MB', 'GB']
+                        unit_index = 0
+                        size = float(size_bytes)
+                        
+                        while size >= 1024 and unit_index < len(units) - 1:
+                            size /= 1024
+                            unit_index += 1
+                        
+                        return f"{size:.2f} {units[unit_index]}"
+                    
+                    stats['total_size'] = format_file_size(stats['total_size'])
             
             # 获取模板路径
             template_path = Path(__file__).parent.parent.parent / "templates" / "index_template.html"
             
-            # 准备模板变量
+            # 准备模板变量，处理默认值
             template_vars = {
                 'title': '静态网页服务',
                 'subtitle': '生成和管理静态HTML网页的HTTP访问服务',
-                'pages_url': f'{self.context_path}/pages/',
-                'chat_url': f'{self.context_path}/chat'
+                'pages_url': f'{self.context_path}/static-pages/',
+                'chat_url': f'{self.context_path}/chat/',
+                'total_files': stats['total_files'] if stats['total_files'] is not None else '无',
+                'total_size': stats['total_size'] if stats['total_size'] is not None else '无',
+                'earliest_created': stats['earliest_created'] if stats['earliest_created'] is not None else '无',
+                'latest_created': stats['latest_created'] if stats['latest_created'] is not None else '无'
             }
             
             # 使用模板渲染 - 传递字典参数
             html = my_render_template(str(template_path), template_vars)
-            
-            # 生成页面列表
-            page_items = ""
-            if not pages:
-                page_items = '<div style="text-align: center; color: #999; padding: 40px;">暂无静态网页</div>'
-            else:
-                for page in pages:
-                    filename = page.get('filename', '')
-                    created_at = page.get('created_at', '')
-                    file_size = page.get('file_size', 0)
-                    
-                    page_items += f"""                <div class="page-item">
-                    <div class="page-title">{filename}</div>
-                    <div class="page-meta">
-                        创建时间: {created_at} | 
-                        文件大小: {file_size} 字节
-                    </div>
-                    <a href="{self.context_path}/pages/{filename}" class="page-link" target="_blank">访问页面</a>
-                </div>
-"""
-            
-            # 在页面内容中添加页面列表
-            if '</div>' in html and '<div class="nav-grid">' in html:
-                # 在导航卡片后面插入页面列表
-                html = html.replace('</div>\n        \n        <div class="footer">', 
-                                   f'''</div>
-        
-        <div style="margin-top: 30px; background: white; border-radius: 12px; padding: 30px; box-shadow: 0 8px 32px rgba(0,0,0,0.1);">
-            <h2 style="margin-bottom: 20px; color: #2c3e50;">📂 静态网页列表</h2>
-            {page_items}
-        </div>
-        
-        <div class="footer">''')
             
             return html, 200, {'Content-Type': 'text/html; charset=utf-8'}
             

@@ -633,7 +633,7 @@
         }
 
         .message-content {
-            max-width: 70%;
+            width: auto;
             word-wrap: break-word;
             position: relative;
         }
@@ -652,7 +652,7 @@
         }
 
         .message.assistant .message-text {
-            background: #f1f5f9;
+            background: #fbfdff;
             color: #334155;
             border-bottom-left-radius: 4px;
         }
@@ -1359,7 +1359,7 @@
                 const rewriteBtn = document.createElement('button');
                 rewriteBtn.className = 'message-action-btn';
                 rewriteBtn.innerHTML = '🔄';
-                rewriteBtn.title = '重写生成';
+                rewriteBtn.title = '重新生成';
                 rewriteBtn.onclick = () => rewriteMessage(message);
                 actionsDiv.appendChild(rewriteBtn);
             }
