@@ -9,8 +9,8 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 from datetime import datetime
 
-# 导入HTTP服务器
-# 导入HTTP服务器和存储管理器
+# 导入Web服务器
+# 导入Web服务器和存储管理器
 try:
     from shared.utils.web_server import get_static_page_server, start_static_page_server
 except ImportError:
@@ -203,7 +203,7 @@ class StaticPageManager:
             # 保存到存储管理器
             self.storage_manager.save_static_page(page_info)
             
-            # 获取HTTP服务器URL
+            # 获取Web服务器URL
             page_url = None
             http_server = get_static_page_server()
             if http_server and http_server.is_running:
@@ -323,7 +323,7 @@ class StaticPageManager:
     
     def start_integrated_server(self, port: int = 3004) -> bool:
         """
-        启动集成微信消息处理功能的HTTP服务器
+        启动集成微信消息处理功能的Web服务器
         
         Args:
             port: 服务端口
@@ -343,7 +343,7 @@ class StaticPageManager:
             
             success = self.integrated_server.start()
             if success:
-                logger.info(f"集成HTTP服务器启动成功，端口: {port}")
+                logger.info(f"集成Web服务器启动成功，端口: {port}")
                 logger.info(f"静态页面访问: http://localhost:{port}/pages/")
                 logger.info(f"微信服务器验证: http://localhost:{port}/wechat/verify")
                 logger.info(f"聊天界面: http://localhost:{port}/chat/")
@@ -356,7 +356,7 @@ class StaticPageManager:
     
     def stop_integrated_server(self) -> bool:
         """
-        停止集成HTTP服务器
+        停止集成Web服务器
         
         Returns:
             是否停止成功
@@ -365,7 +365,7 @@ class StaticPageManager:
             if hasattr(self, 'integrated_server') and self.integrated_server:
                 success = self.integrated_server.stop()
                 if success:
-                    logger.info("集成HTTP服务器已停止")
+                    logger.info("集成Web服务器已停止")
                 return success
             return False
         except Exception as e:
@@ -484,12 +484,12 @@ def handle_static_page_tool(arguments: dict, static_page_manager: StaticPageMana
             success = start_static_page_server(port=port)
             
             if success:
-                return f"静态网页服务器启动成功！\n端口: {port}\n可通过 http://localhost:{port}/ 访问"
+                return f"Web服务器启动成功！\n端口: {port}\n可通过 http://localhost:{port}/ 访问"
             else:
                 # 检查是否已经在运行
                 http_server = get_static_page_server()
                 if http_server and http_server.is_running:
-                    return f"静态网页服务器已在运行中\n当前端口: {http_server.get_port()}\n可通过 http://localhost:{http_server.get_port()}/ 访问"
+                    return f"Web服务器已在运行中\n当前端口: {http_server.get_port()}\n可通过 http://localhost:{http_server.get_port()}/ 访问"
                 else:
                     return f"启动失败: 无法启动服务器"
         
@@ -497,16 +497,16 @@ def handle_static_page_tool(arguments: dict, static_page_manager: StaticPageMana
             http_server = get_static_page_server()
             if http_server and http_server.is_running:
                 port = http_server.get_port()
-                return f"静态网页服务器正在运行\n端口: {port}\n可通过 http://localhost:{port}/ 访问"
+                return f"Web服务器正在运行\n端口: {port}\n可通过 http://localhost:{port}/ 访问"
             else:
-                return "静态网页服务器未启动"
+                return "Web服务器未启动"
         
         elif action == 'start_integrated_server':
             port = arguments.get('port', 3004)
             success = static_page_manager.start_integrated_server(port=port)
             
             if success:
-                return (f"集成HTTP服务器启动成功！\n"
+                return (f"集成Web服务器启动成功！\n"
                        f"端口: {port}\n"
                        f"静态页面: http://localhost:{port}/pages/\n"
                        f"微信验证: http://localhost:{port}/wechat/verify\n"
@@ -518,7 +518,7 @@ def handle_static_page_tool(arguments: dict, static_page_manager: StaticPageMana
         elif action == 'stop_integrated_server':
             success = static_page_manager.stop_integrated_server()
             if success:
-                return "集成HTTP服务器已停止"
+                return "集成Web服务器已停止"
             else:
                 return "停止集成服务器失败或服务器未运行"
         
@@ -526,14 +526,14 @@ def handle_static_page_tool(arguments: dict, static_page_manager: StaticPageMana
             status = static_page_manager.get_server_status()
             if status.get('is_running', False):
                 port = status.get('port', 3004)
-                return (f"集成HTTP服务器正在运行\n"
+                return (f"集成Web服务器正在运行\n"
                        f"端口: {port}\n"
                        f"静态页面: http://localhost:{port}/pages/\n"
                        f"微信验证: http://localhost:{port}/wechat/verify\n"
                        f"聊天界面: http://localhost:{port}/chat/\n"
                        f"服务器首页: http://localhost:{port}/")
             else:
-                return "集成HTTP服务器未启动"
+                return "集成Web服务器未启动"
         
         else:
             return f"未知操作: {action}"

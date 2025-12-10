@@ -5,7 +5,7 @@ import os
 import json
 import time
 import logging
-import aiohttp
+import httpx
 from pathlib import Path
 from typing import Dict, Any, Optional
 
@@ -160,7 +160,7 @@ class AuthManager:
         url = f"https://api.weixin.qq.com/cgi-bin/token?grant_type=client_credential&appid={app_id}&secret={app_secret}"
         
         try:
-            async with aiohttp.ClientSession() as session:
+            async with httpx.AsyncClient() as session:
                 async with session.get(url) as response:
                     data = await response.json()
                     
@@ -181,7 +181,7 @@ class AuthManager:
                         error_code = data.get('errcode', -1)
                         raise Exception(f"获取 Access Token 失败: {error_code} - {error_msg}")
         
-        except aiohttp.ClientError as e:
+        except httpx.RequestError as e:
             raise Exception(f"网络请求失败: {str(e)}")
         except Exception as e:
             logger.error(f"刷新 Access Token 失败: {e}")

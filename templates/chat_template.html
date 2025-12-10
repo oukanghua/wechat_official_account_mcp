@@ -37,20 +37,127 @@
         }
 
         // 处理AI返回的内容，统一转换为可显示的HTML
-        async function processAIContent(content) {
+        function processAIContent(content) {
             // 1. 首先检查输入是否有效
             if (content === null || content === undefined || content === '') {
                 return '';
             }
             
-            // 2. 确保内容是字符串类型，提取有意义的文本
+            // 2. 确保内容是字符串类型
             let safeContent;
             if (typeof content === 'string') {
-                // 如果是字符串，直接使用
                 safeContent = content;
             } else if (Array.isArray(content)) {
-                // 如果是数组，遍历提取内容
                 safeContent = content.map(item => {
+                    if (typeof item === 'string') return item;
+                    if (typeof item === 'object' && item !== null) {
+                        return item.content || item.text || item.message || item.data || JSON.stringify(item);
+                    }
+                    return String(item);
+                }).filter(text => text.trim()).join(' ');
+            } else if (typeof content === 'object') {
+                if (content.content && typeof content.content === 'string') {
+                    safeContent = content.content;
+                } else if (content.text && typeof content.text === 'string') {
+                    safeContent = content.text;
+                } else if (content.message && typeof content.message === 'string') {
+                    safeContent = content.message;
+                } else if (content.data && typeof content.data === 'string') {
+                    safeContent = content.data;
+                } else {
+                    safeContent = JSON.stringify(content);
+                }
+            } else {
+                safeContent = String(content);
+            }
+            
+            // 3. 检查内容是否为空
+            safeContent = safeContent.trim();
+            if (!safeContent || safeContent === 'null' || safeContent === 'undefined') {
+                return '';
+            }
+            
+            // 4. 处理think标签，合并所有并列或嵌套的think标签到一个统一的折叠区域
+            let thinkContents = [];
+            
+            // 提取所有中文格式的think标签内容（使用「」符号）
+            const thinkRegex = /\u27E6([\s\S]*?)\u27E7/gs;
+            let match;
+            while ((match = thinkRegex.exec(safeContent)) !== null) {
+                if (match[1]) {
+                    thinkContents.push(match[1].trim());
+                }
+            }
+            
+            // 移除所有中文格式的think标签
+            safeContent = safeContent.replace(/\u27E6[\s\S]*?\u27E7/gs, '');
+            
+            // 提取所有英文格式的think标签内容（使用``符号）
+            const enThinkRegex = /`([\s\S]*?)`/gs;
+            while ((match = enThinkRegex.exec(safeContent)) !== null) {
+                if (match[1]) {
+                    thinkContents.push(match[1].trim());
+                }
+            }
+            
+            // 移除所有英文格式的think标签
+            safeContent = safeContent.replace(/`[\s\S]*?`/gs, '');
+            
+            // 提取所有标准HTML格式的think标签内容
+            const htmlThinkRegex = /<think>([\s\S]*?)<\/think>/gs;
+            while ((match = htmlThinkRegex.exec(safeContent)) !== null) {
+                if (match[1]) {
+                    thinkContents.push(match[1].trim());
+                }
+            }
+            
+            // 移除所有标准HTML格式的think标签
+            safeContent = safeContent.replace(/<think>[\s\S]*?<\/think>/gs, '');
+            
+            // 如果有think内容，添加到统一的折叠区域
+            if (thinkContents.length > 0) {
+                // 创建think-container
+                let thinkContainer = '<div class="think-container">';
+                // 添加think-header
+                thinkContainer += '<div class="think-header">think.思考过程<span class="think-toggle">▼</span></div>';
+                // 添加think-body层
+                thinkContainer += '<div class="think-body">';
+                // 添加所有think标签内容
+                thinkContents.forEach(content => {
+                    thinkContainer += '<think> ' + content + '</think>';
+                });
+                // 关闭think-body
+                thinkContainer += '</div>';
+                // 关闭think-container
+                thinkContainer += '</div>';
+                // 将think-container添加到内容前面
+                safeContent = thinkContainer + safeContent;
+            }
+            
+            // 5. 直接使用marked.js处理内容
+            try {
+                const html = marked.parse(safeContent);
+                return typeof html === 'string' ? html : String(html);
+            } catch (error) {
+                console.warn('Markdown解析失败，使用简化处理:', error);
+                return simpleMarkdown(safeContent);
+            }
+        }
+
+        // 从各种类型中提取文本内容的辅助函数
+        function extractText(content) {
+            // 1. 首先检查输入是否有效
+            if (content === null || content === undefined || content === '') {
+                return '';
+            }
+            
+            // 2. 根据不同类型提取文本
+            if (typeof content === 'string') {
+                // 如果是字符串，直接使用
+                return content;
+            } else if (Array.isArray(content)) {
+                // 如果是数组，遍历提取内容
+                return content.map(item => {
                     if (typeof item === 'string') return item;
                     if (typeof item === 'object' && item !== null) {
                         // 优先提取常见的内容字段
@@ -61,112 +168,21 @@
             } else if (typeof content === 'object') {
                 // 如果是对象，提取内容
                 if (content.content && typeof content.content === 'string') {
-                    safeContent = content.content;
+                    return content.content;
                 } else if (content.text && typeof content.text === 'string') {
-                    safeContent = content.text;
+                    return content.text;
                 } else if (content.message && typeof content.message === 'string') {
-                    safeContent = content.message;
+                    return content.message;
                 } else if (content.data && typeof content.data === 'string') {
-                    safeContent = content.data;
+                    return content.data;
                 } else {
                     // 尝试将对象转换为字符串
-                    safeContent = JSON.stringify(content);
+                    return JSON.stringify(content);
                 }
             } else {
                 // 其他类型，转换为字符串
-                safeContent = String(content);
+                return String(content);
             }
-            
-            // 3. 清理内容
-            safeContent = safeContent.trim();
-            
-            // 4. 检查清理后是否为空
-            if (safeContent === '' || safeContent === 'null' || safeContent === 'undefined') {
-                return '';
-            }
-            
-            // 5. 预处理markdown文本
-            const processedContent = preprocessMarkdown(safeContent);
-            
-            // 6. 检查预处理后是否为空
-            if (!processedContent) {
-                return '';
-            }
-            
-            // 7. 使用marked.js处理内容
-            try {
-                // 使用await处理marked.parse返回的Promise
-                // 确保processedContent是字符串
-                const safeProcessedContent = String(processedContent || '');
-                // 直接调用marked.parse，不使用await，因为marked.parse是同步的
-                let htmlResult = marked.parse(safeProcessedContent);
-                // 确保html是字符串类型，处理任何可能的返回类型
-                let html;
-                if (htmlResult === null || htmlResult === undefined) {
-                    html = '';
-                } else if (typeof htmlResult === 'string') {
-                    html = htmlResult;
-                } else {
-                    // 如果返回的是对象，尝试转换为字符串
-                    console.warn('marked.parse返回非字符串类型，转换为字符串:', htmlResult);
-                    html = String(htmlResult);
-                }
-                
-                // 8. 清理生成的HTML，特别处理[object Object]问题
-                html = html
-                    // 首先移除包含[object Object]的整个段落
-                    .replace(/<p>\s*\[object\s+Object\]\s*<\/p>/gi, '')
-                    // 然后移除所有[object Object]文本
-                    .replace(/\[object\s+Object\]/gi, '')
-                    // 将所有ol标签转换为ul标签
-                    .replace(/<ol>/gi, '<ul>')
-                    .replace(/<\/ol>/gi, '</ul>')
-                    // 合并相邻的ul列表
-                    .replace(/<\/ul>\s*<ul>/gi, '')
-                    // 移除空的段落标签
-                    .replace(/<p>\s*<\/p>/gi, '')
-                    // 移除空的列表标签
-                    .replace(/<ul>\s*<\/ul>/gi, '')
-                    // 移除空的列表项
-                    .replace(/<li>\s*<\/li>/gi, '')
-                    // 仅移除连续的空白字符，保留单个空格
-                    .replace(/\s{2,}/g, ' ')
-                    .trim();
-                
-                // 9. 检查清理后的HTML是否有效
-                // 优化逻辑：允许包含合法HTML标签的内容通过验证，仅在完全为空或包含[object Object]时使用简化处理
-                const hasValidContent = html && html.length > 0;
-                const hasObjectContent = html.includes('[object Object]');
-                
-                if (!hasValidContent || hasObjectContent) {
-                    console.warn('marked.parse生成的HTML无效，使用简化处理');
-                    // 如果marked.js生成的HTML仍然无效，使用简化处理
-                    return simpleMarkdown(processedContent);
-                }
-                
-                // 10. 确保最终HTML不为空
-                return html || '';
-            } catch (error) {
-                console.warn('Markdown解析失败，使用简化处理:', error);
-                // 使用简化处理作为回退
-                return simpleMarkdown(processedContent);
-            }
-        }
-
-        // 预处理markdown文本，转换特殊格式
-        function preprocessMarkdown(text) {
-            if (!text || typeof text !== 'string') return '';
-            
-            return text
-                // 转换链接格式：链接： `url` -> [url](url)
-                .replace(/链接：\s*`([^`]+)`/g, '[$1]($1)')
-                // 在数字编号前添加换行符，确保每个列表项独立成行
-                .replace(/(?!^)(\d+)\.\s+/g, '\n$1. ')
-                // 确保每个列表项结束后也有换行符
-                .replace(/(\d+)\.\s+([^\d]+)(?=(\d+\.\s+|$))/g, '$1. $2\n')
-                // 移除多余空行
-                .replace(/\n\s*\n/g, '\n')
-                .trim();
         }
 
         // 简化的markdown处理函数，作为marked.parse失败时的回退
@@ -176,9 +192,10 @@
             const safeText = String(text);
             if (!safeText.trim()) return '';
             
-            // 1. 处理代码块 (```code```)
-            let html = safeText.replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>');
-            
+            // 1. 处理代码块 (```code```)，非法字符替换为空格
+            let html = safeText.replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>')
+                    .replace(/<p>\s*\[object\s+Object\]\s*<\/p>/gi, '').replace(/\[object\s+Object\]/gi, '');
+
             // 2. 处理标题 (#, ##, ###)
             // 优化：支持标题不在行首的情况，如"文本## 标题"
             // 优化：修复正则表达式，确保正确匹配各种前缀内容
@@ -192,16 +209,14 @@
             html = html.replace(/^(>\s+)([^\n]+)/gm, '<blockquote>$2</blockquote>');
             
             // 4. 处理粗体和斜体
-            html = html
-                .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+            html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
                 .replace(/\*([^*]+)\*/g, '<em>$1</em>');
             
             // 5. 处理行内代码
             html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
             
             // 6. 处理链接
-            html = html
-                .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
+            html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
                 .replace(/(https?:\/\/[^\s]+)/g, '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>');
             
             // 7. 处理列表
@@ -222,7 +237,6 @@
                 .replace(/<p>\s*<\/p>/gi, '')
                 .replace(/<ul>\s*<\/ul>/gi, '')
                 .replace(/<li>\s*<\/li>/gi, '');
-            
             return html;
         }
     </script>
@@ -621,6 +635,7 @@
         .message-content {
             max-width: 70%;
             word-wrap: break-word;
+            position: relative;
         }
 
         .message-text {
@@ -1049,6 +1064,85 @@
         .chat-messages::-webkit-scrollbar-thumb:hover,
         .config-panel::-webkit-scrollbar-thumb:hover {
             background: #a0aec0;
+        }
+
+        /* think标签样式 */
+        .think-container {
+            background-color: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            margin: 10px 0;
+            overflow: hidden;
+        }
+
+        .think-header {
+            background-color: #e2e8f0;
+            color: #64748b;
+            padding: 8px 12px;
+            font-size: 14px;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-weight: bold;
+        }
+
+        .think-toggle {
+            transition: transform 0.3s ease;
+            font-size: 12px;
+        }
+
+        .think-body {
+            padding: 10px;
+            background-color: #f8fafc;
+            color: #64748b;
+            font-size: 14px;
+            line-height: 1.5;
+            display: none;
+            transition: all 0.3s ease;
+        }
+
+        .think-container.expanded .think-body {
+            display: block;
+        }
+
+        /* AI消息文本样式 - 非think内容淡灰色显示 */
+        .message.assistant .message-text {
+            color: #64748b;
+        }
+
+        /* 消息按钮样式 */
+        .message-actions {
+            position: absolute;
+            bottom: 8px;
+            right: 8px;
+            display: flex;
+            gap: 4px;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .message-content {
+            position: relative;
+        }
+
+        .message:hover .message-actions {
+            opacity: 1;
+        }
+
+        .message-action-btn {
+            background: rgba(0, 0, 0, 0.1);
+            border: none;
+            border-radius: 4px;
+            padding: 4px 8px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            color: #64748b;
+        }
+
+        .message-action-btn:hover {
+            background: rgba(0, 0, 0, 0.2);
         }       
     </style>
 </head>
@@ -1187,7 +1281,218 @@
             setupEventListeners();
             await loadConfig();
             await loadChatHistory(); // 加载聊天历史记录
+            
+            // 初始化think标签折叠功能
+            initThinkTagToggle();
+            
+            // 初始化消息按钮
+            initMessageButtons();
         });
+        
+        // 初始化think标签折叠功能
+        function initThinkTagToggle() {
+            // 默认折叠所有think内容，设置初始箭头状态
+            const allThinkContainers = document.querySelectorAll('.think-container');
+            allThinkContainers.forEach(container => {
+                // 确保容器处于折叠状态
+                container.classList.remove('expanded');
+                const toggle = container.querySelector('.think-toggle');
+                if (toggle) {
+                    toggle.textContent = '▼';
+                }
+            });
+        }
+        
+        // 切换think内容显示/隐藏的函数
+        function toggleThinkContent(e) {
+            const thinkContainer = this.closest('.think-container');
+            const toggle = thinkContainer.querySelector('.think-toggle');
+            
+            // 切换折叠状态
+            thinkContainer.classList.toggle('expanded');
+            toggle.textContent = thinkContainer.classList.contains('expanded') ? '▲' : '▼';
+        }
+        
+        // 使用事件委托监听think标签的点击事件，确保动态生成的标签也能响应
+        document.addEventListener('click', function(e) {
+            if (e.target.closest('.think-header')) {
+                const thinkContainer = e.target.closest('.think-container');
+                const toggle = thinkContainer.querySelector('.think-toggle');
+                
+                // 切换折叠状态
+                thinkContainer.classList.toggle('expanded');
+                toggle.textContent = thinkContainer.classList.contains('expanded') ? '▲' : '▼';
+            }
+        });
+        
+        // 初始化消息按钮
+        function initMessageButtons() {
+            // 为所有消息添加按钮
+            const messages = document.querySelectorAll('.message');
+            messages.forEach(message => {
+                addMessageButtons(message);
+            });
+        }
+        
+        // 为单个消息添加按钮
+        function addMessageButtons(message) {
+            const contentDiv = message.querySelector('.message-content');
+            
+            // 检查是否已经有按钮容器
+            if (contentDiv.querySelector('.message-actions')) {
+                return;
+            }
+            
+            // 创建按钮容器
+            const actionsDiv = document.createElement('div');
+            actionsDiv.className = 'message-actions';
+            
+            // 创建按钮
+            const copyBtn = document.createElement('button');
+            copyBtn.className = 'message-action-btn';
+            copyBtn.innerHTML = '📋';
+            copyBtn.title = '拷贝';
+            copyBtn.onclick = () => copyMessageContent(message);
+            
+            // AI消息添加重写生成按钮
+            if (message.classList.contains('assistant')) {
+                const rewriteBtn = document.createElement('button');
+                rewriteBtn.className = 'message-action-btn';
+                rewriteBtn.innerHTML = '🔄';
+                rewriteBtn.title = '重写生成';
+                rewriteBtn.onclick = () => rewriteMessage(message);
+                actionsDiv.appendChild(rewriteBtn);
+            }
+            
+            actionsDiv.appendChild(copyBtn);
+            contentDiv.appendChild(actionsDiv);
+        }
+        
+        // 拷贝消息内容
+        function copyMessageContent(message) {
+            // 复制到剪贴板，添加降级方案
+            const copyBtn = message.querySelector('.message-action-btn:last-child');
+            if (!copyBtn) return;
+            
+            // 获取当前消息的索引
+            const messages = Array.from(document.querySelectorAll('.message'));
+            const messageIndex = messages.indexOf(message);
+            
+            // 从chatHistory获取对应的内容值
+            let text = '';
+            if (messageIndex >= 0 && messageIndex < chatHistory.length) {
+                const messageData = chatHistory[messageIndex];
+                text = messageData.content;
+            }
+            
+            const originalText = copyBtn.innerHTML;
+            
+            function showSuccess() {
+                copyBtn.innerHTML = '✓';
+                setTimeout(() => {
+                    copyBtn.innerHTML = originalText;
+                }, 1500);
+            }
+            
+            function showError() {
+                copyBtn.innerHTML = '✗';
+                setTimeout(() => {
+                    copyBtn.innerHTML = originalText;
+                }, 1500);
+            }
+            
+            // 确保navigator.clipboard存在且可用
+            if (typeof navigator !== 'undefined' && navigator.clipboard && window.isSecureContext) {
+                // 现代浏览器安全上下文下使用Clipboard API
+                navigator.clipboard.writeText(text)
+                    .then(showSuccess)
+                    .catch(err => {
+                        console.error('拷贝失败:', err);
+                        showError();
+                    });
+            } else {
+                // 降级方案：使用传统的execCommand
+                const textArea = document.createElement('textarea');
+                textArea.value = text;
+                textArea.style.position = 'fixed';
+                textArea.style.left = '-999999px';
+                textArea.style.top = '-999999px';
+                document.body.appendChild(textArea);
+                textArea.focus();
+                textArea.select();
+                
+                try {
+                    const successful = document.execCommand('copy');
+                    if (successful) {
+                        showSuccess();
+                    } else {
+                        showError();
+                    }
+                } catch (err) {
+                    console.error('拷贝失败:', err);
+                    showError();
+                } finally {
+                    document.body.removeChild(textArea);
+                }
+            }
+        }
+        
+        // 重写生成消息
+        function rewriteMessage(message) {
+            // AI正在思考时，不允许重新生成
+            if (isTyping) {
+                return;
+            }
+            
+            // 获取当前AI消息的索引
+            const messages = Array.from(document.querySelectorAll('.message'));
+            const messageIndex = messages.indexOf(message);
+            
+            // 确保当前是AI消息，且前面有用户消息
+            if (message.classList.contains('assistant') && messageIndex > 0) {
+                // 获取对应的用户消息
+                const userMessage = messages[messageIndex - 1];
+                if (userMessage.classList.contains('user')) {
+                    // 获取用户提问内容
+                    const userTextDiv = userMessage.querySelector('.message-text');
+                    const userContent = userTextDiv.textContent || userTextDiv.innerText;
+                    
+                    // 检查是否是最新消息
+                    const isLatestMessage = messageIndex === messages.length - 1;
+                    
+                    if (isLatestMessage) {
+                        // 1. 当前AI回复是最新消息：清除当前消息，重新发送当前问题
+                        message.remove();
+                        messageCount--;
+                        
+                        // 从聊天历史中删除对应的AI消息
+                        if (chatHistory.length > 0 && chatHistory[chatHistory.length - 1].sender === 'assistant') {
+                            chatHistory.pop();
+                            saveChatHistory();
+                        }
+                    } else {
+                        // 2. 当前AI回复非最新消息：清除当前消息及后面的所有问答消息
+                        // 删除DOM中的消息
+                        for (let i = messages.length - 1; i >= messageIndex; i--) {
+                            messages[i].remove();
+                            messageCount--;
+                        }
+                        
+                        // 从聊天历史中删除对应索引及后面的所有消息
+                        chatHistory.splice(messageIndex);
+                        saveChatHistory();
+                    }
+                    
+                    // 清空输入框，避免用户看到之前的提问
+                    messageInput.value = '';
+                    adjustTextareaHeight();
+                    updateSendButtonState();
+                    
+                    // 直接发送消息（不重复记录提问，不修改输入框内容）
+                    sendMessage(true, userContent); // 传入参数表示重写生成，不重复记录，并传入用户内容
+                }
+            }
+        }
 
         // 设置事件监听器
         function setupEventListeners() {
@@ -1231,8 +1536,9 @@
         }
 
         // 发送消息
-        async function sendMessage() {
-            const message = messageInput.value.trim();
+        async function sendMessage(avoidDuplicate = false, userContent = null) {
+            // 获取消息内容：如果提供了userContent则使用，否则从输入框获取
+            const message = userContent || messageInput.value.trim();
             if (!message || isTyping) return;
 
             // 隐藏欢迎消息
@@ -1241,11 +1547,17 @@
                 welcomeMessage.style.display = 'none';
             }
 
-            // 添加用户消息
-            await addMessage(message, 'user');
-            messageInput.value = '';
-            adjustTextareaHeight();
-            updateSendButtonState();
+            // 添加用户消息，除非是重写生成（避免重复记录）
+            if (!avoidDuplicate) {
+                addMessage(message, 'user');
+            }
+            
+            // 如果是从输入框获取的消息，清空输入框
+            if (!userContent) {
+                messageInput.value = '';
+                adjustTextareaHeight();
+                updateSendButtonState();
+            }
 
             // 显示加载状态
             showLoading();
@@ -1256,6 +1568,7 @@
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
+                    'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6'
                 },
                 body: JSON.stringify({ 
                     message: message,
@@ -1271,12 +1584,7 @@
                 // 检查响应类型
                 const contentType = response.headers.get('content-type');
                 
-                // 处理SSE流式响应
-                if (contentType && contentType.includes('text/event-stream')) {
-                    const reader = response.body.getReader();
-                    const decoder = new TextDecoder('utf-8');
-
-                // 创建AI回复消息元素
+                // 创建AI回复消息元素 (统一创建，适用于流式和阻塞响应)
                 const messageDiv = document.createElement('div');
                 messageDiv.className = 'message assistant';
                 
@@ -1304,6 +1612,14 @@
                 
                 chatMessages.appendChild(messageDiv);
                 scrollToBottom();
+                
+                // 为实时回复的AI消息添加按钮
+                addMessageButtons(messageDiv);
+
+                // 处理SSE流式响应
+                if (contentType && contentType.includes('text/event-stream')) {
+                    const reader = response.body.getReader();
+                    const decoder = new TextDecoder('utf-8');
 
                 // 流式内容累积变量
                 let fullContent = '';
@@ -1346,76 +1662,19 @@
                                 break;
                             }
                             
-                            // 处理SSE数据 - 可能是JSON格式或直接文本
-                            let contentChunk = dataLine;
+                            // 处理SSE数据 - 预期是JSON格式
+                            let contentChunk = '';
                             try {
-                                // 先尝试直接作为文本处理
-                                contentChunk = dataLine;
-                                
-                                // 检查是否是JSON格式（以{或[开头）
-                                const trimmedData = dataLine.trim();
-                                if ((trimmedData.startsWith('{') && trimmedData.endsWith('}')) || 
-                                    (trimmedData.startsWith('[') && trimmedData.endsWith(']'))) {
-                                    // 尝试解析为JSON对象
-                                    const jsonData = JSON.parse(dataLine);
-                                    
-                                    // 提取内容的辅助函数
-                                    function extractContent(obj) {
-                                        if (typeof obj === 'string') {
-                                            return obj;
-                                        } else if (Array.isArray(obj)) {
-                                            // 如果是数组，递归提取每个元素的内容
-                                            return obj.map(extractContent).join('');
-                                        } else if (typeof obj === 'object' && obj !== null) {
-                                            // 检查是否是结束标记的JSON结构 (success字段存在且message为空)
-                                            if (obj.hasOwnProperty('success') && obj.message === '') {
-                                                return '';
-                                            }
-                                            // 处理不同的JSON结构
-                                            if (obj.delta && typeof obj.delta === 'object') {
-                                                return extractContent(obj.delta);
-                                            } else if (obj.choices && Array.isArray(obj.choices)) {
-                                                return obj.choices.map(extractContent).join('');
-                                            } else if (obj.content) {
-                                                return extractContent(obj.content);
-                                            } else if (obj.text) {
-                                                return extractContent(obj.text);
-                                            } else if (obj.message) {
-                                                return extractContent(obj.message);
-                                            } else if (obj.interaction_mode) {
-                                                // 跳过interaction_mode字段，避免出现多余的"stream"文本
-                                                return '';
-                                            } else {
-                                                // 遍历对象的所有属性，递归提取内容
-                                                let result = '';
-                                                for (const key in obj) {
-                                                    if (obj.hasOwnProperty(key) && key !== 'interaction_mode') {
-                                                        result += extractContent(obj[key]);
-                                                    }
-                                                }
-                                                return result;
-                                            }
-                                        }
-                                        return '';
-                                    }
-                                    
-                                    // 提取实际内容
-                                    const extractedContent = extractContent(jsonData);
-                                    
-                                    // 只有当提取到内容时才使用，否则作为普通文本处理
-                                    if (extractedContent.trim()) {
-                                        contentChunk = extractedContent;
+                                const jsonData = JSON.parse(dataLine);
+                                // 检查响应格式是否正确
+                                if (jsonData.success && jsonData.interaction_mode === "stream") {
+                                    // 提取message字段作为内容
+                                    if (typeof jsonData.message === 'string') {
+                                        contentChunk = jsonData.message;
                                     }
                                 }
                             } catch (e) {
-                                // 如果JSON解析失败，继续作为普通字符串处理
-                                console.warn('SSE数据处理失败，作为普通字符串处理:', dataLine, e);
-                                contentChunk = dataLine;
-                            }
-                            
-                            // 确保contentChunk是字符串
-                            if (typeof contentChunk !== 'string') {
-                                contentChunk = JSON.stringify(contentChunk);
+                                console.warn('SSE数据处理失败，跳过该数据块:', dataLine, e);
                             }
                             
                             // 累积实际内容
@@ -1425,14 +1684,15 @@
                             renderThrottle++;
                             if (renderThrottle % 10 === 0 || fullContent.length < 50) {
                                 try {
-                                    // 使用新的内容处理函数，添加await处理异步函数
-                                    textDiv.innerHTML = await processAIContent(fullContent);
+                                    // 使用内容处理函数
+                                    textDiv.innerHTML = processAIContent(fullContent);
+                                    // 滚动到底部
                                     scrollToBottom();
                                 } catch (error) {
                                     console.warn('Markdown parsing failed during streaming:', error);
                                 }
                             }
-                        }
+                        } // 结束if (contentChunk)
                         
                         // 保留未处理的缓冲数据
                         buffer = buffer.substring(start);
@@ -1441,7 +1701,7 @@
 
                 // 最终渲染完整内容
                 try {
-                    textDiv.innerHTML = await processAIContent(fullContent);
+                    textDiv.innerHTML = processAIContent(fullContent);
                     
                     // 将完整的AI回复添加到聊天历史
                     const aiMessageTime = new Date().toLocaleTimeString('zh-CN', {
@@ -1465,7 +1725,15 @@
             } else {
                 // 处理普通JSON响应
                 const responseData = await response.json();
-                let fullContent = responseData.content;
+                let fullContent = '';
+                
+                // 检查响应格式是否正确
+                if (responseData.success && responseData.interaction_mode === "block") {
+                    // 提取message字段作为内容
+                    if (typeof responseData.message === 'string') {
+                        fullContent = responseData.message;
+                    }
+                }
                 
                 // 确保content是字符串
                 if (typeof fullContent !== 'string') {
@@ -1474,7 +1742,10 @@
                 
                 // 渲染完整内容
                 try {
-                    textDiv.innerHTML = await processAIContent(fullContent);
+                    textDiv.innerHTML = processAIContent(fullContent);
+                    
+                    // 初始化think标签折叠功能，确保所有think标签都正确初始化
+                    initThinkTagToggle();
                     
                     // 将完整的AI回复添加到聊天历史
                     const aiMessageTime = new Date().toLocaleTimeString('zh-CN', {
@@ -1499,14 +1770,18 @@
 
             } catch (error) {
                 console.error('发送消息失败:', error);
-                await addMessage('抱歉，发生错误，请稍后重试。', 'assistant');
+                // 移除预先创建的空AI消息
+                if (typeof messageDiv !== 'undefined' && messageDiv.parentNode) {
+                    messageDiv.parentNode.removeChild(messageDiv);
+                }
+                // 添加错误消息
+                await addMessage('调用失败请重试', 'assistant');
             } finally {
                 hideLoading();
             }
         }
-
         // 添加消息到聊天界面
-        async function addMessage(content, sender) {
+        function addMessage(content, sender) {
             const messageDiv = document.createElement('div');
             messageDiv.className = `message ${sender}`;
 
@@ -1530,7 +1805,7 @@
             if (sender === 'assistant') {
                 // AI消息使用新的内容处理函数
                 try {
-                    const processedContent = await processAIContent(content);
+                    const processedContent = processAIContent(content);
                     messageTextDiv.innerHTML = processedContent;
                 } catch (error) {
                     // 如果内容处理失败，使用备用处理函数
@@ -1554,6 +1829,13 @@
             messageDiv.appendChild(messageContentDiv);
 
             chatMessages.appendChild(messageDiv);
+            
+            // 为新消息添加按钮
+            addMessageButtons(messageDiv);
+            
+            // 初始化think标签折叠
+            initThinkTagToggle();
+            
             scrollToBottom();
             messageCount++;
             
@@ -1775,7 +2057,7 @@
             if (messageData.sender === 'assistant') {
                 // AI消息使用新的内容处理函数
                 try {
-                    const processedContent = await processAIContent(messageData.content);
+                    const processedContent = processAIContent(messageData.content);
                     messageTextDiv.innerHTML = processedContent;
                 } catch (error) {
                     console.warn('Markdown parsing failed during restore:', error);
@@ -1872,5 +2154,6 @@
     </script>
 </body>
 </html>
+
 
 

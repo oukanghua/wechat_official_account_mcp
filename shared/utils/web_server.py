@@ -1,5 +1,5 @@
 """
-静态网页HTTP服务器 - Flask版本
+Web 服务器 - Flask版本
 提供静态网页的HTTP访问服务，集成微信消息处理和聊天界面
 """
 import logging
@@ -88,7 +88,7 @@ def my_render_template(template_path: str, variables: Dict[str, Any]) -> str:
 
 
 class StaticPageServer:
-    """静态网页HTTP服务器 - Flask版本"""
+    """Web 服务器 - Flask版本"""
     
     def __init__(self, pages_dir: str = "data/static_pages", port: int = 3004):
         """
@@ -203,8 +203,8 @@ class StaticPageServer:
                 # 聊天API（支持直接访问和chat下访问）
                 return self._handle_chat_api()
             elif path == '/api/config':
-                # 配置保存API
-                return self._handle_config_post()
+                # 配置API，由_handle_config_api统一处理GET和POST
+                return self._handle_config_api()
             elif path == '/api/validate_password':
                 # 密码验证API
                 return self._handle_validate_password()
@@ -335,25 +335,50 @@ class StaticPageServer:
             return "<h1>错误</h1><p>无法加载聊天界面</p>", 500
     
     def _handle_config_api(self):
-        """处理配置API请求"""
+        """处理配置API请求，支持GET获取配置和POST保存配置"""
         try:
-            # 从环境变量读取交互模式
-            interaction_mode = os.getenv('OPENAI_INTERACTION_MODE', 'block').strip().lower()
-            # 验证交互模式
-            if interaction_mode not in ['stream', 'block']:
-                interaction_mode = 'block'  # 默认使用阻塞模式
-            
-            # 获取AI服务实例和配置信息
-            ai_service = get_ai_service()
-            ai_config = ai_service.get_config_info()
-            
-            # 返回配置信息
-            config = {
-                'aiService': 'openai',
-                'model': ai_config.get('model', 'gpt-3.5-turbo'),
-                'interactionMode': interaction_mode
-            }
-            return json.dumps(config), 200, {'Content-Type': 'application/json'}
+            if request.method == 'POST':
+                # 处理配置保存请求
+                data = request.get_json()
+                if not data:
+                    return json.dumps({'error': '无效的请求数据'}), 400, {'Content-Type': 'application/json'}
+                
+                # 从请求数据中提取配置参数
+                api_url = data.get('api_url', '')
+                api_key = data.get('api_key', '')
+                model = data.get('model', '')
+                system_prompt = data.get('system_prompt', '')
+                
+                # 验证必要参数
+                if not all([api_url, api_key, model]):
+                    return json.dumps({'error': '缺少必要的配置参数'}), 400, {'Content-Type': 'application/json'}
+                
+                # 获取AI服务实例并保存配置
+                ai_service = get_ai_service()
+                success = ai_service.save_config(api_url, api_key, model, system_prompt)
+                
+                if success:
+                    return json.dumps({'success': True, 'message': '配置保存成功'}), 200, {'Content-Type': 'application/json'}
+                else:
+                    return json.dumps({'error': '配置保存失败'}), 500, {'Content-Type': 'application/json'}
+            else:  # GET请求
+                # 从环境变量读取交互模式
+                interaction_mode = os.getenv('OPENAI_INTERACTION_MODE', 'block').strip().lower()
+                # 验证交互模式
+                if interaction_mode not in ['stream', 'block']:
+                    interaction_mode = 'block'  # 默认使用阻塞模式
+                
+                # 获取AI服务实例和配置信息
+                ai_service = get_ai_service()
+                ai_config = ai_service.get_config_info()
+                
+                # 返回配置信息
+                config = {
+                    'aiService': 'openai',
+                    'model': ai_config.get('model', 'gpt-3.5-turbo'),
+                    'interactionMode': interaction_mode
+                }
+                return json.dumps(config), 200, {'Content-Type': 'application/json'}
             
         except Exception as e:
             logger.error(f"处理配置API失败: {e}")
@@ -393,8 +418,11 @@ class StaticPageServer:
     
     def _handle_chat_api(self):
         """处理聊天API请求"""
+        import time
+        start_time = time.time()
+        
         try:
-            # 获取请求数据
+            # 获取请求数据 - 这是第一个瓶颈点
             data = request.get_json()
             if not data:
                 return json.dumps({'error': '无效的请求数据'}), 400, {'Content-Type': 'application/json'}
@@ -413,66 +441,67 @@ class StaticPageServer:
             if interaction_mode not in ['stream', 'block']:
                 interaction_mode = 'block'  # 默认使用阻塞模式
             
-            # 获取AI服务实例
+            logger.info(f"请求数据处理完成，耗时: {time.time() - start_time:.3f}秒")
+            
+            # 获取AI服务实例 - 全局单例，避免重复创建
             ai_service = get_ai_service()
             
+            logger.info(f"获取AI服务实例完成，耗时: {time.time() - start_time:.3f}秒")
+            
             if interaction_mode == 'stream':
-                # 流式响应处理 - 将异步生成器转换为同步可迭代对象
+                # 流式响应处理 - 优化事件循环管理
                 def generate():
-                    loop = None
+                    # 确保每个线程都有自己的事件循环
                     try:
-                        # 1. 创建事件循环
+                        loop = asyncio.get_event_loop()
+                    except RuntimeError:
                         loop = asyncio.new_event_loop()
                         asyncio.set_event_loop(loop)
-                        
-                        # 2. 定义异步函数来处理流式响应
-                        async def fetch_stream():
-                            try:
-                                async for chunk in ai_service.stream_chat(
-                                    user_message=user_message,
-                                    conversation_history=conversation_history,
-                                    source="page"  # 来源标记为页面访问
-                                ):
-                                    yield chunk
-                            except Exception as e:
-                                logger.error(f"流式响应异常: {e}")
-                                raise
-                        
-                        # 3. 创建异步生成器
-                        async_gen = fetch_stream()
-                        
-                        # 4. 手动迭代异步生成器
-                        while True:
-                            try:
-                                # 使用事件循环运行单个异步操作
-                                chunk = loop.run_until_complete(async_gen.__anext__())
-                                # SSE格式: data: {chunk}
+                    
+                    logger.info(f"创建/获取事件循环完成，耗时: {time.time() - start_time:.3f}秒")
+                    
+                    # 直接调用ai_service.stream_chat，减少中间层嵌套
+                    async def stream_wrapper():
+                        try:
+                            logger.info(f"开始调用AI模型，耗时: {time.time() - start_time:.3f}秒")
+                            async for chunk in ai_service.stream_chat(
+                                user_message=user_message,
+                                conversation_history=conversation_history,
+                                source="page"  # 来源标记为页面访问
+                            ):
                                 yield f"data: {json.dumps({'success': True, 'message': chunk, 'interaction_mode': 'stream'})}\n\n"
-                            except StopAsyncIteration:
-                                # 数据传输完成
-                                break
-                            except Exception as e:
-                                logger.error(f"流式响应异常: {e}")
-                                # 发送错误信息
-                                yield f"data: {json.dumps({'error': str(e), 'success': False})}\n\n"
-                                break
-                    except Exception as e:
-                        logger.error(f"流式响应初始化异常: {e}")
-                        yield f"data: {json.dumps({'error': str(e), 'success': False})}\n\n"
-                    finally:
-                        # 确保事件循环被正确关闭
-                        if loop is not None:
-                            loop.close()
+                        except Exception as e:
+                            logger.error(f"流式响应异常: {e}")
+                            yield f"data: {json.dumps({'error': str(e), 'success': False})}\n\n"
+                    
+                    # 运行异步生成器
+                    async_gen = stream_wrapper()
+                    
+                    while True:
+                        try:
+                            chunk = loop.run_until_complete(async_gen.__anext__())
+                            yield chunk
+                        except StopAsyncIteration:
+                            break
+                        except Exception as e:
+                            logger.error(f"流式响应迭代异常: {e}")
+                            break
                 
                 # 返回SSE响应
                 return Response(generate(), mimetype='text/event-stream')
             else:
-                # 阻塞模式处理
-                # 使用asyncio运行异步方法
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
+                # 阻塞模式处理 - 确保每个线程都有自己的事件循环
+                try:
+                    loop = asyncio.get_event_loop()
+                except RuntimeError:
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                
+                logger.info(f"创建/获取事件循环完成，耗时: {time.time() - start_time:.3f}秒")
+                
                 try:
                     # 调用AI服务获取回复
+                    logger.info(f"开始调用AI模型，耗时: {time.time() - start_time:.3f}秒")
                     ai_reply = loop.run_until_complete(
                         ai_service.simple_chat(
                             user_message=user_message,
@@ -481,8 +510,9 @@ class StaticPageServer:
                             stream=False  # 阻塞模式
                         )
                     )
-                finally:
-                    loop.close()
+                except Exception as e:
+                    logger.error(f"阻塞模式调用异常: {e}")
+                    return json.dumps({'error': str(e)}), 500, {'Content-Type': 'application/json'}
                 
                 # 返回AI回复
                 return json.dumps({
@@ -562,7 +592,7 @@ class StaticPageServer:
             self.server_thread = threading.Thread(target=self._run_server, daemon=True)
             self.server_thread.start()
             
-            logger.info(f"静态网页HTTP服务器启动成功")
+            logger.info(f"Web 服务器启动成功")
             logger.info(f"服务地址: http://{self.host}:{self.port}")
             logger.info(f"静态网页目录: {self.pages_dir}")
             logger.info(f"页面访问格式: http://{self.host}:{self.port}{self.context_path}/pages/文件名.html")
@@ -571,23 +601,38 @@ class StaticPageServer:
             return True
             
         except Exception as e:
-            logger.error(f"启动HTTP服务器失败: {e}")
+            logger.error(f"启动Web服务器失败: {e}")
             self.is_running = False
             return False
     
     def _run_server(self):
         """在独立线程中运行服务器"""
         try:
-            logger.info(f"HTTP服务器线程启动，监听地址 {self.host}，端口 {self.port}")
-            # 启动Flask服务器
-            self.app.run(host=self.host, port=self.port, debug=False, use_reloader=False)
+            logger.info(f"Web服务器线程启动，监听地址 {self.host}，端口 {self.port}")
+            
+            # 使用pywsgi WSGI服务器运行Flask应用
+            try:
+                from gevent.pywsgi import WSGIServer
+                # 创建WSGI服务器实例
+                http_server = WSGIServer((self.host, self.port), self.app)
+                # 启动服务器
+                http_server.serve_forever()
+            except ImportError:
+                # 如果pywsgi不可用，回退到Flask开发服务器
+                logger.warning("gevent.pywsgi未安装，回退到Flask开发服务器")
+                # 禁用Werkzeug的开发服务器警告
+                import logging
+                werkzeug_logger = logging.getLogger('werkzeug')
+                werkzeug_logger.setLevel(logging.ERROR)
+                # 启动Flask服务器
+                self.app.run(host=self.host, port=self.port, debug=False, use_reloader=False)
         except Exception as e:
-            logger.error(f"HTTP服务器运行异常: {e}")
+            logger.error(f"Web服务器运行异常: {e}")
         finally:
             self.is_running = False
     
     def stop(self):
-        """停止HTTP服务器"""
+        """停止Web服务器"""
         try:
             if not self.is_running:
                 logger.warning("服务器未在运行中")
@@ -595,10 +640,10 @@ class StaticPageServer:
             
             # Flask开发服务器无法优雅停止，这里只能设置状态为停止
             self.is_running = False
-            logger.info("静态网页HTTP服务器已停止")
+            logger.info("Web 服务器已停止")
             return True
         except Exception as e:
-            logger.error(f"停止HTTP服务器失败: {e}")
+            logger.error(f"停止Web服务器失败: {e}")
             return False
     
     def get_status(self) -> dict:
@@ -631,7 +676,7 @@ class StaticPageServer:
 
 
 class IntegratedStaticPageServer(StaticPageServer):
-    """集成静态网页服务器，支持微信消息处理和聊天界面"""
+    """集成Web服务器，支持微信消息处理和聊天界面"""
     
     def __init__(self, pages_dir: str = "data/static_pages", port: int = 3004, static_page_manager=None):
         """
@@ -711,12 +756,12 @@ class IntegratedStaticPageServer(StaticPageServer):
             return "<h1>错误</h1><p>无法加载页面列表</p>", 500
 
 
-# 全局HTTP服务器实例
+# 全局Web服务器实例
 _static_page_server = None
 
 
 def get_static_page_server() -> StaticPageServer:
-    """获取全局静态网页服务器实例"""
+    """获取全局Web服务器实例"""
     global _static_page_server
     if _static_page_server is None:
         _static_page_server = StaticPageServer()
@@ -725,7 +770,7 @@ def get_static_page_server() -> StaticPageServer:
 
 def start_static_page_server(port: int = 3004, static_page_manager=None) -> bool:
     """
-    启动静态网页HTTP服务器
+    启动Web 服务器
     
     Args:
         port: 服务端口

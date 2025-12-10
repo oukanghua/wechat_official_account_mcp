@@ -9,15 +9,6 @@ import asyncio
 import httpx
 from typing import Dict, Any, List, Optional, AsyncGenerator
 
-# 加载环境变量
-from dotenv import load_dotenv
-env_file = os.path.join(os.path.dirname(__file__), "..", "..", ".env")
-if os.path.exists(env_file):
-    load_dotenv(env_file)
-    logging.info(f"已加载环境变量文件: {env_file}")
-else:
-    logging.warning(f"未找到环境变量文件: {env_file}")
-
 logger = logging.getLogger(__name__)
 
 
@@ -46,8 +37,17 @@ class AIService:
         self.temperature = float(os.getenv('AI_TEMPERATURE') or os.getenv('OPENAI_TEMPERATURE', '0.7'))
         self.timeout = float(os.getenv('AI_TIMEOUT') or os.getenv('OPENAI_TIMEOUT', '30.0'))
         
-        # 尝试从配置文件加载
-        self._load_config_from_file()
+        # 只在第一次初始化时从配置文件加载，后续通过save_config更新
+        if not hasattr(self.__class__, '_config_loaded'):
+            self._load_config_from_file()
+            self.__class__._config_loaded = True
+        
+        # 复用HTTP客户端，减少连接建立和销毁的开销
+        if not hasattr(self.__class__, '_http_client'):
+            self.__class__._http_client = None
+        
+        # 初始化HTTP客户端
+        self._init_http_client()
     
     def is_configured(self) -> bool:
         """
@@ -57,6 +57,21 @@ class AIService:
             是否已配置
         """
         return bool(self.api_url and self.api_key)
+    
+    def _init_http_client(self):
+        """
+        初始化复用的HTTP客户端
+        """
+        if self.__class__._http_client is None or self.__class__._http_client.is_closed:
+            self.__class__._http_client = httpx.AsyncClient(timeout=self.timeout)
+    
+    async def _close_http_client(self):
+        """
+        关闭HTTP客户端
+        """
+        if self.__class__._http_client and not self.__class__._http_client.is_closed:
+            await self.__class__._http_client.aclose()
+            self.__class__._http_client = None
     
     async def get_reply(self, messages: List[Dict[str, str]], stream: bool = False, timeout: float = 4.5, source: str = "unknown") -> str:
         """
@@ -87,19 +102,22 @@ class AIService:
                     return "消息格式错误"
             
             # 调用OpenAI API
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                # 构建请求参数
-                request_params = {
-                    "model": self.model,
-                    "messages": full_messages,
-                    "max_tokens": self.max_tokens,
-                    "temperature": self.temperature
-                }
+            # 使用复用的HTTP客户端，减少连接建立和销毁的开销
+            client = self.__class__._http_client
+            
+            # 构建请求参数
+            request_params = {
+                "model": self.model,
+                "messages": full_messages,
+                "max_tokens": self.max_tokens,
+                "temperature": self.temperature
+            }
+            
+            if stream:
+                request_params["stream"] = True
                 
-                if stream:
-                    request_params["stream"] = True
-                    
-                    # 流式调用 - 使用client.stream()方法并配合async with上下文管理器
+                # 流式调用 - 使用client.stream()方法
+                try:
                     async with client.stream(
                         "POST",
                         f"{self.api_url.rstrip('/')}/chat/completions",
@@ -186,8 +204,14 @@ class AIService:
                             reply_content += prompt_text
                         
                         return reply_content
-                else:
-                    # 阻塞式调用
+                except httpx.RemoteProtocolError:
+                    # 处理连接错误，重新初始化客户端
+                    self._init_http_client()
+                    logger.warning(f"HTTP连接异常，已重新初始化客户端")
+                    return f"AI服务连接异常，请稍后重试"
+            else:
+                # 阻塞式调用
+                try:
                     response = await client.post(
                         f"{self.api_url.rstrip('/')}/chat/completions",
                         headers={
@@ -207,6 +231,11 @@ class AIService:
                     else:
                         logger.error(f"AI API调用失败: {response.status_code} - {response.text}")
                         return f"AI服务暂时不可用: {response.status_code}"
+                except httpx.RemoteProtocolError:
+                    # 处理连接错误，重新初始化客户端
+                    self._init_http_client()
+                    logger.warning(f"HTTP连接异常，已重新初始化客户端")
+                    return f"AI服务连接异常，请稍后重试"
                     
         except asyncio.TimeoutError:
             logger.error("AI API调用超时")
@@ -271,50 +300,56 @@ class AIService:
                     yield "消息格式错误"
                     return
             
-            # 调用OpenAI API
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                # 构建请求参数
-                request_params = {
-                    "model": self.model,
-                    "messages": full_messages,
-                    "max_tokens": self.max_tokens,
-                    "temperature": self.temperature,
-                    "stream": True
-                }
+            # 调用OpenAI API - 使用复用的HTTP客户端
+            client = self.__class__._http_client
+            
+            # 构建请求参数
+            request_params = {
+                "model": self.model,
+                "messages": full_messages,
+                "max_tokens": self.max_tokens,
+                "temperature": self.temperature,
+                "stream": True
+            }
+            
+            # 流式调用
+            async with client.stream(
+                "POST",
+                f"{self.api_url.rstrip('/')}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json"
+                },
+                json=request_params
+            ) as response:
                 
-                # 流式调用
-                async with client.stream(
-                    "POST",
-                    f"{self.api_url.rstrip('/')}/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {self.api_key}",
-                        "Content-Type": "application/json"
-                    },
-                    json=request_params
-                ) as response:
-                    
-                    if response.status_code != 200:
-                        logger.error(f"AI API调用失败: {response.status_code} - {response.text}")
-                        yield f"AI服务暂时不可用: {response.status_code}"
-                        return
-                    
-                    # 处理流式响应
-                    collected_content = []
-                    
-                    async for line in response.aiter_lines():
-                        if line.startswith('data: ') and line != 'data: [DONE]':
-                            # 解析JSON数据
-                            try:
-                                data = json.loads(line[6:])  # 去掉 'data: ' 前缀
-                                if 'choices' in data and data['choices']:
-                                    delta = data['choices'][0].get('delta', {})
-                                    if 'content' in delta:
-                                        yield delta['content']
-                                        collected_content.append(delta['content'])
-                            except json.JSONDecodeError:
-                                continue
-                        elif line == 'data: [DONE]':
-                            break
+                if response.status_code != 200:
+                    logger.error(f"AI API调用失败: {response.status_code} - {response.text}")
+                    yield f"AI服务暂时不可用: {response.status_code}"
+                    return
+                
+                # 处理流式响应
+                collected_content = []
+                
+                async for line in response.aiter_lines():
+                    if line.startswith('data: ') and line != 'data: [DONE]':
+                        # 解析JSON数据
+                        try:
+                            data = json.loads(line[6:])  # 去掉 'data: ' 前缀
+                            if 'choices' in data and data['choices']:
+                                delta = data['choices'][0].get('delta', {})
+                                if 'content' in delta:
+                                    yield delta['content']
+                                    collected_content.append(delta['content'])
+                        except json.JSONDecodeError:
+                            continue
+                    elif line == 'data: [DONE]':
+                        break
+        except httpx.RemoteProtocolError:
+            # 处理连接错误，重新初始化客户端
+            self._init_http_client()
+            logger.warning(f"HTTP连接异常，已重新初始化客户端")
+            yield f"AI服务连接异常，请稍后重试"
         except Exception as e:
             logger.error(f"流式对话时发生错误: {e}")
             yield f"对话失败: {str(e)}"

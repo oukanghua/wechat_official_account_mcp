@@ -4,8 +4,7 @@
 import json
 import logging
 import re
-import aiohttp
-import requests
+import httpx
 from typing import Dict, Any, Optional, List, Union
 from io import BytesIO
 
@@ -92,7 +91,7 @@ class WechatApiClient:
         url = self._build_url(endpoint)
         
         try:
-            async with aiohttp.ClientSession() as session:
+            async with httpx.AsyncClient() as session:
                 if method.upper() == 'GET':
                     async with session.get(url, params=data) as response:
                         result = await self._parse_response(response)
@@ -114,39 +113,38 @@ class WechatApiClient:
         
         except WechatApiError:
             raise
-        except aiohttp.ClientError as e:
+        except httpx.RequestError as e:
             raise Exception(f"网络请求失败: {str(e)}")
     
-    async def _post_with_files(self, session: aiohttp.ClientSession, url: str,
+    async def _post_with_files(self, session: httpx.AsyncClient, url: str,
                                data: Optional[Dict[str, Any]], files: Dict[str, Any]) -> Dict[str, Any]:
         """POST 请求（带文件）"""
-        form_data = aiohttp.FormData()
-        for key, value in (data or {}).items():
-            form_data.add_field(key, str(value))
+        # 准备表单数据
+        form_data = data or {}
+        # 准备文件数据
+        file_data = {}
         for key, (content, filename) in files.items():
-            form_data.add_field(key, content, filename=filename)
+            file_data[key] = (filename, content)
         
-        async with session.post(url, data=form_data) as response:
+        async with session.post(url, data=form_data, files=file_data) as response:
             return await self._parse_response(response)
     
-    async def _post_json(self, session: aiohttp.ClientSession, url: str,
+    async def _post_json(self, session: httpx.AsyncClient, url: str,
                         data: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         """POST 请求（JSON 数据）"""
         if data:
-            json_data = json.dumps(data, ensure_ascii=False)
-            headers = {'Content-Type': 'application/json; charset=utf-8'}
-            async with session.post(url, data=json_data.encode('utf-8'), headers=headers) as response:
+            async with session.post(url, json=data) as response:
                 return await self._parse_response(response)
         else:
             async with session.post(url) as response:
                 return await self._parse_response(response)
     
-    async def _parse_response(self, response: aiohttp.ClientResponse) -> Dict[str, Any]:
+    async def _parse_response(self, response: httpx.Response) -> Dict[str, Any]:
         """
         解析HTTP响应
         
         Args:
-            response: aiohttp响应对象
+            response: httpx响应对象
             
         Returns:
             解析后的JSON数据
@@ -244,8 +242,8 @@ class WechatApiClient:
         """
         url = f"{self.BASE_URL}/cgi-bin/media/upload?access_token={self.access_token}&type={media_type}"
         
-        # 使用 requests 处理文件上传（aiohttp 的文件上传较复杂）
-        response = requests.post(url, files={'media': (filename, file_content)})
+        # 使用 httpx 处理文件上传
+        response = httpx.post(url, files={'media': (filename, file_content)})
         result = response.json()
         
         if 'errcode' in result and result['errcode'] != 0:
@@ -266,7 +264,7 @@ class WechatApiClient:
         """
         url = f"{self.BASE_URL}/cgi-bin/media/get?access_token={self.access_token}&media_id={media_id}"
         
-        response = requests.get(url)
+        response = httpx.get(url)
         content_type = response.headers.get('Content-Type', '')
         
         if 'application/json' in content_type:
@@ -508,7 +506,7 @@ class WechatApiClient:
             params['checkonly'] = '1'
         
         try:
-            async with aiohttp.ClientSession() as session:
+            async with httpx.AsyncClient() as session:
                 async with session.post(url, params=params) as response:
                     result = await self._parse_response(response)
                     
@@ -521,5 +519,5 @@ class WechatApiClient:
         
         except WechatApiError:
             raise
-        except aiohttp.ClientError as e:
+        except httpx.RequestError as e:
             raise Exception(f"网络请求失败: {str(e)}")

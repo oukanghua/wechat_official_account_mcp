@@ -52,7 +52,7 @@ def main():
         
         logger.info("微信公众号 MCP 服务器启动中...")
         
-        # 启动静态网页服务器 - 使用统一的WECHAT_SERVER_PORT
+        # 启动Web服务器 - 使用统一的WECHAT_SERVER_PORT
         static_page_port = int(os.getenv('WECHAT_SERVER_PORT', '3004'))
         try:
             from shared.utils.web_server import start_static_page_server
@@ -63,18 +63,18 @@ def main():
             storage_dir = str(script_dir / 'data' / 'static_pages')
             db_file = str(script_dir / 'data' / 'storage.db')
             
-            # 初始化静态页面管理器
+            # 初始化Web页面管理器
             static_page_manager = StaticPageManager(storage_dir=storage_dir, db_file=db_file)
             
-            logger.info(f"启动静态网页HTTP服务器，端口: {static_page_port}")
+            logger.info(f"启动Web服务器，端口: {static_page_port}")
             success = start_static_page_server(static_page_port, static_page_manager=static_page_manager)
             if success:
-                logger.info(f"静态网页服务器启动成功")
+                logger.info(f"Web服务器启动成功")
                 logger.info(f"访问地址: http://localhost:{static_page_port}")
             else:
-                logger.warning("静态网页服务器启动失败")
+                logger.warning("Web服务器启动失败")
         except Exception as e:
-            logger.warning(f"静态网页服务器启动异常: {e}")
+            logger.warning(f"Web服务器启动异常: {e}")
             logger.exception(e)
         
         # 直接导入并运行 MCP 服务器
