@@ -24,15 +24,20 @@
                     .replace(/"/g, '&quot;')
                     .replace(/'/g, '&#39;');
             }
-            // 简化marked.js配置，使用默认renderer
+            // 简化marked.js配置，使用自定义renderer确保链接在新标签页打开
             // 使用marked.use配置marked.js（v16推荐方式）
             marked.use({
                 breaks: true,     // 启用GFM换行符
                 gfm: true,        // 启用GitHub风味markdown
                 headerIds: false, // 禁用标题ID
                 mangle: false,    // 禁用邮箱地址混淆
-                linkify: true     // 启用自动链接识别
-                // 注意：sanitize选项在v16+已移除，不再支持
+                linkify: true,    // 启用自动链接识别
+                renderer: {
+                    // 自定义链接渲染，添加target="_blank"，并处理href为对象的情况
+                    link(linkVar) {
+                        return `<a href="${linkVar.href}" target="_blank">${linkVar.text}</a>`;
+                    }
+                }
             });
         }
 
@@ -634,8 +639,13 @@
 
         .message-content {
             width: auto;
+            max-width: 90%;
             word-wrap: break-word;
             position: relative;
+        }
+
+        .message.assistant .message-content {
+            width: 90%;
         }
 
         .message-text {
@@ -693,7 +703,10 @@
         .message-text li {
             margin: 0.25em 0;
         }
-
+        .think-body ol ul {
+            list-style: none;
+            padding-left: 0;
+        }
         .message-text code {
             background: #f1f5f9;
             color: #e11d48;
@@ -1150,7 +1163,7 @@
     <div class="chat-container">
         <div class="chat-header">
             <div class="status-indicator"></div>
-            <h1>🤖 AI析数助手</h1>
+            <h1>🎯 AI析数助手</h1>
             <p>"真知灼见"与您探索数据价值</p>
             <button class="clear-chat-btn" id="clearChatBtn" onclick="clearChatHistory()" disabled>🗑️ 清除</button>
             <button class="config-toggle" onclick="toggleConfigPanel()">⚙️ 配置</button>

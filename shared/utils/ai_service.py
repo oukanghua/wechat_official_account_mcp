@@ -162,12 +162,12 @@ class AIService:
                         
                         if source == "wechat":
                             # 公众号接口：使用配置的超时时间
-                            wechat_timeout = os.getenv('WECHAT_AI_TIMEOUT')
+                            wechat_timeout = os.getenv('WECHAT_MSG_AI_TIMEOUT')
                             if wechat_timeout:
                                 try:
                                     final_timeout = float(wechat_timeout)
                                 except ValueError:
-                                    logger.warning(f"WECHAT_AI_TIMEOUT 配置值无效: {wechat_timeout}，使用默认值 {timeout}秒")
+                                    logger.warning(f"WECHAT_MSG_AI_TIMEOUT 配置值无效: {wechat_timeout}，使用默认值 {timeout}秒")
                         elif source == "page":
                             # 页面访问：设置较长的超时时间（30秒）
                             page_timeout = os.getenv('OPENAI_TIMEOUT', '30')
@@ -200,7 +200,7 @@ class AIService:
                         # 如果回复未完成且有内容，添加提示话语
                         if not complete and reply_content:
                             # 从环境变量获取提示话语
-                            prompt_text = os.getenv('OPENAI_STREAM_TIMEOUT_PROMPT', '\n\n（内容未完全生成，后续回复将继续完善）')
+                            prompt_text = os.getenv('WECHAT_MSG_AI_TIMEOUT_PROMPT', '\n\n（内容未完全生成，后续回复将继续完善）')
                             reply_content += prompt_text
                         
                         return reply_content

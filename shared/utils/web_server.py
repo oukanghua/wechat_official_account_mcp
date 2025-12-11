@@ -9,8 +9,10 @@ import json
 import hashlib
 import re
 import asyncio
+import time
 from pathlib import Path
 from typing import Optional, Dict, List, Any, Union
+from xml.etree import ElementTree as ET
 
 from flask import Flask, request, Response
 from shared.utils.ai_service import get_ai_service
@@ -35,6 +37,7 @@ def my_render_template(template_path: str, variables: Dict[str, Any]) -> str:
         
         # 处理带默认值的变量替换
         # 正则表达式匹配 {{ variable or 'default' }} 或 {{ variable or "default" }}
+        # 注意：使用负断言确保 or 前后不是单词字符或点号，避免匹配到其他单词的一部分（如 formatted 中的 or）
         def replace_default_var(match):
             var_name = match.group(1).strip()
             default_value = match.group(2).strip()
@@ -132,6 +135,7 @@ def my_render_template(template_path: str, variables: Dict[str, Any]) -> str:
                 item_html = loop_content
                 
                 # 先处理item中的带默认值变量
+                # 注意：使用负断言确保 or 前后不是单词字符或点号，避免匹配到其他单词的一部分（如 formatted 中的 or）
                 def replace_item_default_var(match):
                     var_name = match.group(1).strip()
                     default_value = match.group(2).strip()
@@ -156,7 +160,7 @@ def my_render_template(template_path: str, variables: Dict[str, Any]) -> str:
                     except (AttributeError, TypeError):
                         return default_value
                 
-                item_html = re.sub(r'\{\{\s*([\w.]+)\s*or\s*([^}]+)\s*\}\}', replace_item_default_var, item_html)
+                item_html = re.sub(r'\{\{\s*([\w.]+)\s*(?<![\w.])or(?![\w.])\s*([^}]+)\s*\}\}', replace_item_default_var, item_html)
                 
                 # 然后处理item中的普通变量（包括点表示法）
                 def replace_item_var(match):
@@ -189,7 +193,7 @@ def my_render_template(template_path: str, variables: Dict[str, Any]) -> str:
                      replace_for_loop, template, flags=re.DOTALL)
         
         # 2. 处理模板级别的变量（非循环内的）
-        html = re.sub(r'\{\{\s*([\w.]+)\s*or\s*([^}]+)\s*\}\}', replace_default_var, html)
+        html = re.sub(r'\{\{\s*([\w.]+)\s*(?<![\w.])or(?![\w.])\s*([^}]+)\s*\}\}', replace_default_var, html)
         html = re.sub(r'\{\{\s*([\w.]+)\s*\}\}', replace_regular_var, html)
         
         # 3. 处理条件判断（支持点表示法）
@@ -252,7 +256,7 @@ class StaticPageServer:
         self.server_thread = None
         
         # 从环境变量读取配置
-        self.context_path = os.environ.get('CONTEXT_PATH', '').strip()
+        self.context_path = os.environ.get('WECHAT_MSG_CONTEXT_PATH', '').strip()
         # 确保contextPath以/开头，不以/结尾
         if self.context_path:
             if not self.context_path.startswith('/'):
@@ -261,9 +265,9 @@ class StaticPageServer:
                 self.context_path = self.context_path[:-1]
         
         # 获取监听地址和端口
-        self.host = os.getenv('WECHAT_SERVER_HOST', '0.0.0.0')
-        # 使用WECHAT_SERVER_PORT作为统一端口
-        self.port = int(os.getenv('WECHAT_SERVER_PORT', str(port)))
+        self.host = os.getenv('WECHAT_MSG_SERVER_HOST', '0.0.0.0')
+        # 使用WECHAT_MSG_SERVER_PORT作为统一端口
+        self.port = int(os.getenv('WECHAT_MSG_SERVER_PORT', str(port)))
         
         # 确保页面目录存在
         Path(self.pages_dir).mkdir(parents=True, exist_ok=True)
@@ -336,7 +340,7 @@ class StaticPageServer:
             elif path == '/favicon.ico':
                 # 网站图标
                 return self._handle_favicon()
-            elif path == '/wechat/verify':
+            elif path == '/wechat/reply':
                 # 微信服务器验证
                 return self._handle_wechat_verify()
             else:
@@ -356,10 +360,10 @@ class StaticPageServer:
             elif path == '/api/config':
                 # 配置API，由_handle_config_api统一处理GET和POST
                 return self._handle_config_api()
-            elif path == '/api/validate_password':
-                # 密码验证API
+            elif path == '/api/validate-password':
+                # 密码验证请求
                 return self._handle_validate_password()
-            elif path == '/wechat/verify':
+            elif path == '/wechat/reply':
                 # 微信消息接收
                 return self._handle_wechat_message()
             else:
@@ -537,17 +541,19 @@ class StaticPageServer:
         # 返回空响应
         return "", 200, {'Content-Type': 'image/x-icon'}
     
-    def _handle_wechat_verify(self):
-        """处理微信服务器验证"""
+    def _verify_wechat_signature(self):
+        """验证微信签名"""
         try:
-            # 获取查询参数
+            # 获取参数（GET请求从args获取，POST请求从args获取）
             signature = request.args.get('signature', '')
             timestamp = request.args.get('timestamp', '')
             nonce = request.args.get('nonce', '')
-            echostr = request.args.get('echostr', '')
             
             # 从环境变量获取token
-            token = os.getenv('WECHAT_TOKEN', 'default_token')
+            token = os.getenv('WECHAT_TOKEN')
+            if not token:
+                logger.error("WECHAT_TOKEN环境变量未配置")
+                return False
             
             # 验证签名
             temp_list = [token, timestamp, nonce]
@@ -555,7 +561,19 @@ class StaticPageServer:
             temp_str = ''.join(temp_list)
             sha1_hash = hashlib.sha1(temp_str.encode('utf-8')).hexdigest()
             
-            if sha1_hash == signature:
+            return sha1_hash == signature
+            
+        except Exception as e:
+            logger.error(f"验证微信签名失败: {e}")
+            return False
+    
+    def _handle_wechat_verify(self):
+        """处理微信服务器验证"""
+        try:
+            # 验证签名
+            if self._verify_wechat_signature():
+                # 获取echostr并返回
+                echostr = request.args.get('echostr', '')
                 return echostr, 200, {'Content-Type': 'text/plain; charset=utf-8'}
             else:
                 return "Signature verification failed", 403
@@ -710,24 +728,83 @@ class StaticPageServer:
             # 获取请求数据
             data = request.get_json()
             password = data.get('password', '')
-            # 示例实现，仅返回成功响应
-            return json.dumps({'success': True, 'message': 'Password validated'}), 200, {'Content-Type': 'application/json'}
+            # 从环境变量获取配置密码
+            openai_config_password = os.getenv('OPENAI_CONFIG_PASSWORD')
+            
+            # 验证密码
+            if openai_config_password and password == openai_config_password:
+                return json.dumps({'success': True, 'message': 'Password validated'}), 200, {'Content-Type': 'application/json'}
+            else:
+                return json.dumps({'success': False, 'message': 'Invalid password'}), 401, {'Content-Type': 'application/json'}
             
         except Exception as e:
             logger.error(f"处理密码验证请求失败: {e}")
             return json.dumps({'error': str(e)}), 500, {'Content-Type': 'application/json'}
     
     def _handle_wechat_message(self):
-        """处理微信消息"""
+        """处理微信消息，调用AI服务自动回复"""
         try:
-            # 获取请求数据
-            xml_data = request.data
-            # 示例实现，仅返回成功响应
-            return "success", 200, {'Content-Type': 'text/plain; charset=utf-8'}
+            # 1. 验证微信签名
+            if not self._verify_wechat_signature():
+                return "Signature verification failed", 403
+            
+            # 2. 解析微信发来的XML消息
+            xml_data = request.data.decode('utf-8')
+            
+            # 解析XML
+            root = ET.fromstring(xml_data)
+            
+            # 提取消息类型
+            msg_type = root.find('MsgType').text if root.find('MsgType') is not None else ''
+            
+            # 3. 只处理文本消息
+            if msg_type == 'text':
+                # 提取消息内容和其他必要信息
+                to_user = root.find('ToUserName').text if root.find('ToUserName') is not None else ''
+                from_user = root.find('FromUserName').text if root.find('FromUserName') is not None else ''
+                create_time = root.find('CreateTime').text if root.find('CreateTime') is not None else ''
+                content = root.find('Content').text if root.find('Content') is not None else ''
+                
+                logger.info(f"收到微信消息: 来自{from_user}, 内容: {content}")
+                
+                # 4. 调用AI服务获取回复
+                ai_service = get_ai_service()
+                
+                # 确保每个线程都有自己的事件循环
+                try:
+                    loop = asyncio.get_event_loop()
+                except RuntimeError:
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                
+                # 调用AI服务，使用wechat作为source，确保超时处理正确
+                ai_reply = loop.run_until_complete(
+                    ai_service.simple_chat(
+                        user_message=content,
+                        conversation_history=[],  # 微信公众号暂时不支持上下文
+                        source="wechat",  # 来源标记为微信，使用微信特定的超时设置
+                        stream=False  # 微信需要立即返回结果
+                    )
+                )
+                
+                # 5. 生成微信响应XML
+                response_xml = f"""<xml>
+                    <ToUserName><![CDATA[{from_user}]]></ToUserName>
+                    <FromUserName><![CDATA[{to_user}]]></FromUserName>
+                    <CreateTime>{int(time.time())}</CreateTime>
+                    <MsgType><![CDATA[text]]></MsgType>
+                    <Content><![CDATA[{ai_reply}]]></Content>
+                </xml>"""
+                
+                return response_xml, 200, {'Content-Type': 'application/xml; charset=utf-8'}
+            else:
+                # 非文本消息，返回空响应
+                return "success", 200, {'Content-Type': 'text/plain; charset=utf-8'}
             
         except Exception as e:
             logger.error(f"处理微信消息失败: {e}")
-            return "Internal server error", 500
+            # 微信服务器要求即使出错也返回success，否则会重试
+            return "success", 200, {'Content-Type': 'text/plain; charset=utf-8'}
     
     def start(self):
         """启动Flask服务器"""
@@ -878,13 +955,13 @@ class IntegratedStaticPageServer(StaticPageServer):
                 
                 return f"{size:.2f} {units[unit_index]}"
             
-            # 计算总文件大小
-            total_file_size = sum(page.get('current_size', 0) for page in pages)
+            # 计算总文件大小 - 使用 current_size 优先，如果为0则使用 file_size
+            total_file_size = sum(page.get('current_size', page.get('file_size', 0)) for page in pages)
             total_size_formatted = format_file_size(total_file_size)
             
-            # 格式化每个页面的文件大小
+            # 格式化每个页面的文件大小 - 使用 current_size 优先，如果为0则使用 file_size
             for page in current_pages:
-                file_size = page.get('current_size', 0)
+                file_size = page.get('current_size', page.get('file_size', 0))
                 page['file_size_formatted'] = format_file_size(file_size)
             
             # 生成分页HTML

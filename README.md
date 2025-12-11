@@ -40,6 +40,7 @@ pip install -r requirements.txt
 # 微信公众号配置
 WECHAT_APP_ID=your_app_id
 WECHAT_APP_SECRET=your_app_secret
+WECHAT_TOKEN=your_wechat_token      # 🔥 微信服务【消息推送】验证Token（必需）
 
 # FastMCP 2.0 配置（可选）
 MCP_TRANSPORT=http      # 传输模式: stdio(默认), http, sse
@@ -47,8 +48,37 @@ MCP_HOST=0.0.0.0       # HTTP 服务器绑定地址
 MCP_PORT=3003          # HTTP 服务器端口
 
 # Web服务器配置（可选）
-STATIC_PAGE_PORT=3004  # Web 服务器端口
+WECHAT_MSG_SERVER_PORT=3004  # Web 服务器端口
+WECHAT_MSG_SERVER_HOST=0.0.0.0  # Web 服务器监听地址
+WECHAT_MSG_CONTEXT_PATH=/webchat-oa  # 静态网页服务上下文路径
+WECHAT_OFFICIAL_API_URL=https://api.weixin.qq.com  # 微信服务端API基础URL
+# AI配置
+WECHAT_MSG_AI_TIMEOUT=4.8  # 公众号接口AI回复超时时间（秒）
+WECHAT_MSG_AI_TIMEOUT_PROMPT=\n\n（内容未完全生成，后续回复将继续完善） # 流式模式超时提示语
+OPENAI_CONFIG_PASSWORD=your_config_password_here  # 聊天界面配置密码（用于保护配置功能）
 ```
+
+### 微信公众号后台配置
+
+1. **登录微信公众号后台**：访问 [mp.weixin.qq.com](https://mp.weixin.qq.com/) 并登录
+
+2. **配置服务器地址**：
+   - 进入「开发」>「基本配置」
+   - 点击「修改配置」按钮
+   - 填写以下信息：
+     - **URL**：填写服务器地址，格式为 `http://your_domain.com:3004/wechat/reply`（若设置了WECHAT_MSG_CONTEXT_PATH，则为 `http://your_domain.com:3004${WECHAT_MSG_CONTEXT_PATH}/wechat/reply`）
+     - **Token**：填写与 `.env` 文件中 `WECHAT_TOKEN` 相同的值
+     - **EncodingAESKey**：随机生成或自定义，选择「明文模式」或「兼容模式」
+   - 点击「提交」按钮，微信会验证服务器地址是否可用
+
+3. **启用服务器配置**：
+   - 提交成功后，点击「启用」按钮
+   - 此时微信公众号的消息将自动推送到你的服务器
+
+4. **配置消息回复**：
+   - 进入「开发」>「消息管理」>「消息回复」
+   - 确保自动回复功能已开启
+   - 选择「关键词回复」或「自动回复」配置
 
 ### 启动服务器
 
@@ -69,9 +99,9 @@ python main.py
 #### 访问聊天界面
 ```bash
 # 访问介绍页
-# URL: http://localhost:3004/contextPath/
+# URL: http://localhost:3004/WECHAT_MSG_CONTEXT_PATH/
 # 访问聊天界面
-# URL: http://localhost:3004/contextPath/chat/
+# URL: http://localhost:3004/WECHAT_MSG_CONTEXT_PATH/chat/
 ```
 
 #### 调用优化的聊天 API
@@ -120,10 +150,13 @@ Web 服务器提供以下核心 API 端点：
 
 | 端点 | 方法 | 描述 | 延迟优化 |
 |------|------|------|----------|
-| `/chat/api/send` | POST | AI 聊天消息发送接口 | ✅ 优化至约 0.96 秒 |
-| `/chat/api/config` | GET | 获取聊天服务配置 | - |
-| `/` | GET | 主页面（聊天界面） | - |
+| `/api/chat` 或 `/chat/api/send` | POST | AI 聊天消息发送接口 | ✅ 优化至约 0.96 秒 |
+| `/api/config` 或 `/chat/api/config` | GET/POST | 获取/保存聊天服务配置 | - |
+| `/api/validate-password` | POST | 密码验证接口 | - |
+| `/` 或 `/chat/` | GET | 主页面（聊天界面） | - |
 | `/static/*` | GET | 静态资源访问 | - |
+| `/wechat/reply` | GET | 微信服务器验证接口 | - |
+| `/wechat/reply` | POST | 微信消息接收和自动回复接口 | - |
 
 #### 核心优化端点：`/chat/api/send`
 
@@ -272,9 +305,15 @@ Web 服务器的性能优化功能默认启用，无需额外配置。优化包�
 
 | 变量名 | 默认值 | 描述 |
 |--------|--------|------|
-| `STATIC_PAGE_PORT` | `3004` | Web 服务器监听端口 |
 | `MCP_HOST` | `0.0.0.0` | HTTP 服务器绑定地址 |
 | `MCP_PORT` | `3003` | MCP HTTP 服务端口 |
+| `WECHAT_MSG_SERVER_PORT` | `3004` | Web 服务器监听端口 |
+| `WECHAT_MSG_SERVER_HOST` | `0.0.0.0` | Web 服务器监听地址 |
+| `WECHAT_MSG_CONTEXT_PATH` | `` | 静态网页服务上下文路径 |
+| `WECHAT_OFFICIAL_API_URL` | `https://api.weixin.qq.com` | 微信服务端API基础URL |
+| `WECHAT_MSG_AI_TIMEOUT` | `4.8` | 公众号接口AI回复超时时间（秒） |
+| `WECHAT_MSG_AI_TIMEOUT_PROMPT` | `\n\n（内容未完全生成，后续回复将继续完善）` | 流式模式超时提示语 |
+| `OPENAI_CONFIG_PASSWORD` | `` | 聊天界面配置密码（用于保护配置功能） |
 
 #### 性能监控
 
@@ -334,7 +373,10 @@ wechat_official_account_mcp/
 ├── Dockerfile             # Docker 构建文件
 ├── docker-compose.yml     # Docker Compose 配置
 ├── templates/             # 模板文件
-│   └── phub_template.html # P站样式模板
+│   ├── chat_template.html        # 聊天界面模板
+│   ├── index_template.html        # 索引页面模板
+│   ├── phub_template.html         # P站样式模板
+│   └── static_pages_template.html # 静态网页模板
 ├── tools/                 # MCP 工具模块
 │   ├── auth.py            # 认证工具
 │   ├── media.py           # 素材管理工具

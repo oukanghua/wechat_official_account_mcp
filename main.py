@@ -52,8 +52,8 @@ def main():
         
         logger.info("微信公众号 MCP 服务器启动中...")
         
-        # 启动Web服务器 - 使用统一的WECHAT_SERVER_PORT
-        static_page_port = int(os.getenv('WECHAT_SERVER_PORT', '3004'))
+        # 启动Web服务器 - 使用统一的WECHAT_MSG_SERVER_PORT
+        static_page_port = int(os.getenv('WECHAT_MSG_SERVER_PORT', '3004'))
         try:
             from shared.utils.web_server import start_static_page_server
             from tools.static_pages import StaticPageManager

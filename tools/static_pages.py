@@ -246,12 +246,15 @@ class StaticPageManager:
                 return None
         
         # 检查文件是否仍然存在
-        file_path = Path(page_info["filepath"])
+        # 直接使用storage_dir和文件名拼接，确保路径正确
+        file_path = self.storage_dir / filename
+        
         if file_path.exists():
             page_info["exists"] = True
             page_info["current_size"] = file_path.stat().st_size
         else:
             page_info["exists"] = False
+            page_info["current_size"] = 0
         
         return page_info
     
@@ -303,7 +306,13 @@ class StaticPageManager:
         pages = []
         for page_info in storage_pages:
             # 检查文件是否仍然存在
-            file_path = Path(page_info["filepath"])
+            # 直接使用storage_dir和文件名拼接，确保路径正确
+            filename = page_info.get("filename")
+            if not filename:
+                continue
+            
+            file_path = self.storage_dir / filename
+            
             if file_path.exists():
                 page_info["exists"] = True
                 page_info["current_size"] = file_path.stat().st_size

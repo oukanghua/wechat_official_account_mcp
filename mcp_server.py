@@ -631,7 +631,11 @@ async def mcp_server_main():
             else:
                 # HTTP/SSE 模式（FastMCP 2.0 新功能）
                 logger.info(f"HTTP 服务器地址: http://{host}:{port}")
-                await mcp.run_async(transport, host=host, port=port)
+                # 配置uvicorn，设置合理的优雅关闭超时时间
+                uvicorn_config = {
+                    "timeout_graceful_shutdown": 5  # 5秒优雅关闭超时
+                }
+                await mcp.run_async(transport, host=host, port=port, uvicorn_config=uvicorn_config)
         
         # 运行 MCP 服务器
         # 直接运行异步函数，让外层的事件循环处理逻辑来决定如何执行
