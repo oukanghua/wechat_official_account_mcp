@@ -777,13 +777,19 @@ class StaticPageServer:
                     loop = asyncio.new_event_loop()
                     asyncio.set_event_loop(loop)
                 
+                # 从环境变量获取交互模式，默认为stream
+                interaction_mode = os.getenv('OPENAI_INTERACTION_MODE', 'stream').strip().lower()
+                # 验证交互模式
+                if interaction_mode not in ['stream', 'block']:
+                    interaction_mode = 'block'  # 默认使用阻塞模式
+                
                 # 调用AI服务，使用wechat作为source，确保超时处理正确
                 ai_reply = loop.run_until_complete(
                     ai_service.simple_chat(
                         user_message=content,
                         conversation_history=[],  # 微信公众号暂时不支持上下文
                         source="wechat",  # 来源标记为微信，使用微信特定的超时设置
-                        stream=False  # 微信需要立即返回结果
+                        stream=interaction_mode == 'stream'  # 根据交互模式设置stream参数
                     )
                 )
                 

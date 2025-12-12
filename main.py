@@ -31,7 +31,7 @@ def main():
             load_dotenv(env_file)
             logger.info(f"已加载环境变量文件: {env_file}")
         else:
-            logger.warning(f"未找到环境变量文件: {env_file}")
+            logger.warning(f"未找到环境变量文件，可能已在宿主机加载: {env_file}")
         
         # 确保数据目录存在
         data_dir = script_dir / 'data'
