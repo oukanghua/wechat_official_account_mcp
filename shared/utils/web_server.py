@@ -607,13 +607,9 @@ class StaticPageServer:
             if interaction_mode not in ['stream', 'block']:
                 interaction_mode = 'block'  # 默认使用阻塞模式
             
-            logger.info(f"请求数据处理完成，耗时: {time.time() - start_time:.3f}秒")
-            
             # 获取AI服务实例 - 全局单例，避免重复创建
             ai_service = get_ai_service()
-            
-            logger.info(f"获取AI服务实例完成，耗时: {time.time() - start_time:.3f}秒")
-            
+                        
             if interaction_mode == 'stream':
                 # 流式响应处理 - 优化事件循环管理
                 def generate():
@@ -623,13 +619,10 @@ class StaticPageServer:
                     except RuntimeError:
                         loop = asyncio.new_event_loop()
                         asyncio.set_event_loop(loop)
-                    
-                    logger.info(f"创建/获取事件循环完成，耗时: {time.time() - start_time:.3f}秒")
-                    
+                                        
                     # 直接调用ai_service.stream_chat，减少中间层嵌套
                     async def stream_wrapper():
                         try:
-                            logger.info(f"开始调用AI模型，耗时: {time.time() - start_time:.3f}秒")
                             async for chunk in ai_service.stream_chat(
                                 user_message=user_message,
                                 conversation_history=conversation_history,
@@ -662,12 +655,9 @@ class StaticPageServer:
                 except RuntimeError:
                     loop = asyncio.new_event_loop()
                     asyncio.set_event_loop(loop)
-                
-                logger.info(f"创建/获取事件循环完成，耗时: {time.time() - start_time:.3f}秒")
-                
+
                 try:
                     # 调用AI服务获取回复
-                    logger.info(f"开始调用AI模型，耗时: {time.time() - start_time:.3f}秒")
                     ai_reply = loop.run_until_complete(
                         ai_service.simple_chat(
                             user_message=user_message,

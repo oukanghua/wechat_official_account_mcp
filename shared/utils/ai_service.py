@@ -169,12 +169,12 @@ class AIService:
                                 except ValueError:
                                     logger.warning(f"WECHAT_MSG_AI_TIMEOUT 配置值无效: {wechat_timeout}，使用默认值 {timeout}秒")
                         elif source == "page":
-                            # 页面访问：设置较长的超时时间（30秒）
-                            page_timeout = os.getenv('OPENAI_TIMEOUT', '30')
+                            # 页面访问：设置较长的超时时间（300秒）
+                            page_timeout = os.getenv('OPENAI_TIMEOUT', '300')
                             try:
                                 final_timeout = float(page_timeout)
                             except ValueError:
-                                logger.warning(f"OPENAI_TIMEOUT 配置值无效: {page_timeout}，使用默认值 30秒")
+                                logger.warning(f"OPENAI_TIMEOUT 配置值无效: {page_timeout}，使用默认值 300秒")
                         
                         # 使用超时机制
                         try:
@@ -193,16 +193,14 @@ class AIService:
                                     await stream_task  # 等待任务被取消
                                 except asyncio.CancelledError:
                                     pass
-                        
                         # 构建最终回复
                         reply_content = ''.join(collected_content)
-                        
                         # 如果回复未完成且有内容，添加提示话语
-                        if not complete and reply_content:
+                        if not complete :
                             # 从环境变量获取提示话语
-                            prompt_text = os.getenv('WECHAT_MSG_AI_TIMEOUT_PROMPT', '\n\n（内容未完全生成，后续回复将继续完善）')
+                            logger.info(f"回复未完成，添加额外提示话语...")
+                            prompt_text = os.getenv('WECHAT_MSG_AI_TIMEOUT_PROMPT', '\n（内容未完全生成，后续回复将继续完善）')
                             reply_content += prompt_text
-                        
                         return reply_content
                 except httpx.RemoteProtocolError:
                     # 处理连接错误，重新初始化客户端
@@ -220,7 +218,6 @@ class AIService:
                         },
                         json=request_params
                     )
-                    
                     if response.status_code == 200:
                         result = response.json()
                         if 'choices' in result and len(result['choices']) > 0:
