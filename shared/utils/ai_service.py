@@ -483,7 +483,7 @@ class AIService:
                                                 
                                             if len(content_part) > remaining:
                                                 # 超过剩余限制，截取部分内容并添加省略号
-                                                content_part = content_part[:remaining] + "..."
+                                                content_part = content_part[:remaining] + "... " + os.getenv('WECHAT_MSG_AI_TIMEOUT_PROMPT')
                                                 yield content_part
                                                 logger.info(f"微信消息超过长度限制({wechat_len_limit}字符)，已截取")
                                                 reached_limit = True
@@ -561,7 +561,7 @@ class AIService:
             logger.error("AI API调用超时")
             # 超时提示处理
             if source == "wechat":
-                timeout_prompt = os.getenv('WECHAT_MSG_AI_TIMEOUT_PROMPT', '\n（内容未完全生成，后续回复将继续完善）')
+                timeout_prompt = os.getenv('WECHAT_MSG_AI_TIMEOUT_PROMPT')
                 yield timeout_prompt
             else:
                 yield "AI服务响应超时，请稍后重试"
@@ -710,18 +710,18 @@ class AIService:
         
         # 1. 长度限制处理
         wechat_len_limit = os.getenv('WECHAT_MSG_AI_LEN_LIMIT')
+        timeout_prompt = os.getenv('WECHAT_MSG_AI_TIMEOUT_PROMPT')
         if wechat_len_limit:
             try:
                 limit = int(wechat_len_limit)
                 if len(processed_content) > limit:
-                    processed_content = processed_content[:limit] + "..."
+                    processed_content = processed_content[:limit] + "... " + timeout_prompt
                     logger.info(f"微信消息超过长度限制({limit}字符)，已截取")
             except ValueError:
                 logger.warning(f"WECHAT_MSG_AI_LEN_LIMIT 配置值无效: {wechat_len_limit}")
         
         # 2. 超时提示处理
         if timed_out or processed_content == '':
-            timeout_prompt = os.getenv('WECHAT_MSG_AI_TIMEOUT_PROMPT', '\n（内容未完全生成，后续回复将继续完善）')
             processed_content += timeout_prompt
             logger.info(f"微信消息处理超时，已添加超时提示")
         
