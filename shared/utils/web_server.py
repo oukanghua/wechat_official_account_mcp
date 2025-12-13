@@ -814,7 +814,7 @@ class StaticPageServer:
             self.server_thread.start()
             
             logger.info(f"Web 服务器启动成功")
-            logger.info(f"服务地址: http://{self.host}:{self.port}")
+            logger.info(f"服务地址: http://{self.host}:{self.port}{self.context_path}")
             logger.info(f"静态网页目录: {self.pages_dir}")
             logger.info(f"页面访问格式: http://{self.host}:{self.port}{self.context_path}/pages/文件名.html")
             

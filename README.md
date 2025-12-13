@@ -35,27 +35,53 @@ pip install -r requirements.txt
 ```
 
 ### 配置环境
-创建 `.env` 文件：
+- 创建 `.env` 文件：
+
+```bash
+cp .env.example .env
+```
+
 ```env
-# 微信公众号配置
-WECHAT_APP_ID=your_app_id
-WECHAT_APP_SECRET=your_app_secret
-WECHAT_TOKEN=your_wechat_token      # 🔥 微信服务【消息推送】验证Token（必需）
-
-# FastMCP 2.0 配置（可选）
-MCP_TRANSPORT=http      # 传输模式: stdio(默认), http, sse
-MCP_HOST=0.0.0.0       # HTTP 服务器绑定地址
-MCP_PORT=3003          # HTTP 服务器端口
-
-# Web服务器配置（可选）
-WECHAT_MSG_SERVER_PORT=3004  # Web 服务器端口
-WECHAT_MSG_SERVER_HOST=0.0.0.0  # Web 服务器监听地址
-WECHAT_MSG_CONTEXT_PATH=/webchat-oa  # 静态网页服务上下文路径
+# ============================================
+# 🔥 MCP基础配置（必需）
+# ============================================
+MCP_TRANSPORT=http      # 传输协议选择：stdio/http/sse
+MCP_HOST=0.0.0.0       # Web服务器绑定地址（可选，有默认值）
+MCP_PORT=3003          # Web服务器端口（可选，有默认值）
+# ============================================
+# ⚙️ Web服务器/消息服务配置（必需）
+# ============================================
+# 端口配置
+# - 开发环境: 3003
+# - 生产环境: 80 (HTTP) 或 443 (HTTPS)
+WECHAT_MSG_SERVER_PORT=80   # 📋 服务器端口
+WECHAT_MSG_SERVER_HOST=0.0.0.0  # 📋 监听地址
+WECHAT_MSG_CONTEXT_PATH=/wechat-oa # 静态网页服务上下文路径（可选，默认/）
+WECHAT_MSG_AI_TIMEOUT=3                      # 公众号接口AI回复超时时间（秒），页面访问不设置超时
+WECHAT_MSG_AI_TIMEOUT_PROMPT="\n--内容未完全生成，请访问http://ip:port/wechat-oa/chat" # 流式模式超时提示语
 WECHAT_OFFICIAL_API_URL=https://api.weixin.qq.com  # 微信服务端API基础URL
-# AI配置
-WECHAT_MSG_AI_TIMEOUT=4.8  # 公众号接口AI回复超时时间（秒）
-WECHAT_MSG_AI_TIMEOUT_PROMPT=\n\n（内容未完全生成，后续回复将继续完善） # 流式模式超时提示语
-OPENAI_CONFIG_PASSWORD=your_config_password_here  # 聊天界面配置密码（用于保护配置功能）
+
+# ============================================
+# 🤖 OpenAI AI服务配置（AI智能聊天功能）
+# ============================================
+OPENAI_API_KEY=your_openai_api_key          # OpenAI API密钥
+OPENAI_MODEL=gpt-3.5-turbo                  # OpenAI模型选择
+OPENAI_MAX_TOKENS=40000                      # 最大token数量
+OPENAI_TEMPERATURE=0.7                      # 回复创造性（0.0-2.0）
+OPENAI_TIMEOUT=300                        # API超时时间（秒）
+OPENAI_INTERACTION_MODE=stream                  # AI交互模式：stream（流式）或block（阻塞）
+OPENAI_PROMPT="你是一个专业的热点资讯分析师，专注于实时追踪、深度解析和前瞻预测全球范围内的热点新闻事件，当前任务是简洁快速回复公众号用户的问题。"
+# 聊天界面配置密码（用于保护配置功能）
+OPENAI_CONFIG_PASSWORD=your_config_password_here     
+# ============================================
+# 🔥 微信公众号基础配置
+# ============================================
+WECHAT_APP_ID=your_app_id           # 🔥 微信公众号AppID（必需）
+WECHAT_APP_SECRET=your_app_secret   # 🔥 微信公众号AppSecret（必需）
+# ============================================
+# 🔥 微信公众号【消息推送】配置
+# ============================================
+WECHAT_TOKEN=your_wechat_token      # 🔥 微信服务【消息推送】验证Token（必需）
 ```
 
 ### 微信公众号后台配置
@@ -242,12 +268,6 @@ wechat_publish(action="list", no_content=True)
 ```
 **功能**：发布草稿到微信公众号，获取发布状态，删除已发布文章，获取发布列表
 
-### 统一工具调用接口
-```python
-# 使用通用接口调用任何工具
-wechat_tool_call(tool_name="wechat_auth", arguments={"action": "status"})
-```
-
 ### 7. 静态网页管理 (`static_page`)
 ```python
 # 生成随机命名静态网页
@@ -281,6 +301,12 @@ static_page(action="info", filename="my_page")
 static_page(action="delete", filename="my_page")
 ```
 **功能**：动态生成静态HTML网页，集成服务器支持微信消息处理和AI聊天界面，提供完整的网页和消息管理功能
+
+### 8. 统一工具调用接口
+```python
+# 使用通用接口调用任何工具
+wechat_tool_call(tool_name="wechat_auth", arguments={"action": "status"})
+```
 
 ## ⚙️ 部署配置
 
