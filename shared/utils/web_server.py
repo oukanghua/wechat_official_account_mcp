@@ -776,16 +776,34 @@ class StaticPageServer:
                 # 获取signature（用于缓存键生成）
                 signature = request.args.get('signature', '')
                 
-                # 调用AI服务，使用wechat作为source，确保超时处理正确
-                ai_reply = loop.run_until_complete(
-                    ai_service.simple_chat(
-                        user_message=content,
-                        conversation_history=[],  # 微信公众号暂时不支持上下文
-                        source="wechat",  # 来源标记为微信，使用微信特定的超时设置
-                        stream=interaction_mode == 'stream',  # 根据交互模式设置stream参数
-                        signature=signature  # 传递signature用于缓存键生成
+                # 根据交互模式调用不同的AI服务方法
+                if interaction_mode == 'stream':
+                    # stream模式：使用stream_chat方法，该方法已完整实现缓存检查和保存逻辑
+                    def stream_wrapper():
+                        async def collect_stream():
+                            collected = []
+                            async for chunk in ai_service.stream_chat(
+                                user_message=content,
+                                conversation_history=[],  # 微信公众号暂时不支持上下文
+                                source="wechat",  # 来源标记为微信，使用微信特定的超时设置
+                                signature=signature  # 传递signature用于缓存键生成
+                            ):
+                                collected.append(chunk)
+                            return ''.join(collected)
+                        return collect_stream()
+                    
+                    ai_reply = loop.run_until_complete(stream_wrapper())
+                else:
+                    # block模式：使用simple_chat方法
+                    ai_reply = loop.run_until_complete(
+                        ai_service.simple_chat(
+                            user_message=content,
+                            conversation_history=[],  # 微信公众号暂时不支持上下文
+                            source="wechat",  # 来源标记为微信，使用微信特定的超时设置
+                            stream=False,
+                            signature=signature  # 传递signature用于缓存键生成
+                        )
                     )
-                )
                 
                 # 5. 生成微信响应XML
                 response_xml = f"""<xml>

@@ -229,7 +229,28 @@ class AIService:
                         
                         # 构建最终回复并处理
                         reply_content = ''.join(collected_content)
-                        return self._process_response(reply_content, source, timed_out)
+                        processed_content = self._process_response(reply_content, source, timed_out)
+                        
+                        # 微信对话内容缓存（stream模式）
+                        if source == "wechat" and processed_content:
+                            # 获取用户问题
+                            user_message = messages[-1]['content'] if messages else ''
+                            # 生成缓存键（用户问题 + signature）
+                            cache_key = f"{user_message}_{signature}"
+                            
+                            # 清理过期缓存
+                            self._clean_expired_cache()
+                            
+                            # 存储新缓存
+                            current_time = time.time()
+                            expire_time = current_time + self.wechat_cache_time
+                            self.__class__._wechat_cache[cache_key] = (processed_content, expire_time)
+                            logger.info(f"写入缓存: {cache_key}")
+                            
+                            # 限制缓存大小
+                            self._limit_cache_size()
+                        
+                        return processed_content
                 except httpx.RemoteProtocolError:
                     # 处理连接错误，重新初始化客户端
                     self._init_http_client()
@@ -484,32 +505,26 @@ class AIService:
                         async for content in process_stream():
                             yield content
                     else:
-                        # 创建一次process_stream生成器并重用
-                        stream_generator = process_stream()
-                        while True:
-                            try:
-                                # 创建任务并设置超时
-                                stream_task = asyncio.create_task(stream_generator.__anext__())
-                                content = await asyncio.wait_for(stream_task, timeout=final_timeout)
+                        # 创建一个协程包装整个流式处理，统一处理超时
+                        async def wrapped_stream():
+                            async for content in process_stream():
                                 yield content
-                            except StopAsyncIteration:
-                                # 流式响应结束
-                                break
-                            except asyncio.TimeoutError:
-                                # 超时处理
-                                logger.warning(f"流式响应超时（{final_timeout}秒），返回已接收内容")
-                                timed_out = True
-                                break
-                            except Exception as e:
-                                # 其他异常处理
-                                logger.error(f"处理流式响应片段时发生错误: {e}")
-                                break
+                        
+                        # 使用wait_for包装整个流式处理过程
+                        stream_coroutine = wrapped_stream()
+                        try:
+                            async for content in stream_coroutine:
+                                yield content
+                        except asyncio.TimeoutError:
+                            # 超时处理
+                            logger.warning(f"流式响应超时（{final_timeout}秒），返回已接收内容")
+                            timed_out = True
                 except Exception as e:
                     logger.error(f"处理流式响应时发生错误: {e}")
-                    raise
-                
+                    # 即使发生异常，也继续执行缓存保存逻辑
+                    
                 # 统一处理最终响应
-                if source == "wechat" and collected_content:
+                if source == "wechat":
                     complete_content = ''.join(collected_content)
                     # 使用_process_response方法统一处理
                     processed_content = self._process_response(complete_content, source, timed_out)
