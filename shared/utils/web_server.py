@@ -806,13 +806,14 @@ class StaticPageServer:
                     )
                 
                 # 5. 生成微信响应XML
-                response_xml = f"""<xml>
-                    <ToUserName><![CDATA[{from_user}]]></ToUserName>
-                    <FromUserName><![CDATA[{to_user}]]></FromUserName>
-                    <CreateTime>{int(time.time())}</CreateTime>
-                    <MsgType><![CDATA[text]]></MsgType>
-                    <Content><![CDATA[{ai_reply}]]></Content>
-                </xml>"""
+                response_xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<xml>
+    <ToUserName><![CDATA[{from_user}]]></ToUserName>
+    <FromUserName><![CDATA[{to_user}]]></FromUserName>
+    <CreateTime>{int(time.time())}</CreateTime>
+    <MsgType><![CDATA[text]]></MsgType>
+    <Content><![CDATA[{ai_reply}]]></Content>
+</xml>"""
                 
                 return response_xml, 200, {'Content-Type': 'application/xml; charset=utf-8'}
             else:
