@@ -93,6 +93,7 @@ class AIService:
             stream: 是否使用流式调用
             timeout: 流式调用时的默认超时时间（秒）
             source: 请求来源，可选值："wechat"（公众号）、"page"（页面访问）、"unknown"（未知）
+            signature: 微信请求签名，用于缓存键生成
             
         Returns:
             AI回复内容
@@ -111,6 +112,25 @@ class AIService:
                 if not isinstance(msg, dict) or 'role' not in msg or 'content' not in msg:
                     logger.error(f"无效的消息格式: {msg}")
                     return "消息格式错误"
+            
+            # 微信对话缓存检查（block模式）
+            if source == "wechat" and not stream:
+                # 获取用户问题
+                user_message = messages[-1]['content'] if messages else ''
+                # 生成缓存键
+                cache_key = f"{user_message}_{signature}"
+                current_time = time.time()
+                
+                # 检查缓存是否存在且未过期
+                if cache_key in self.__class__._wechat_cache:
+                    cached_content, expire_time = self.__class__._wechat_cache[cache_key]
+                    if expire_time > current_time:
+                        logger.info(f"微信对话缓存命中: {cache_key}")
+                        return cached_content
+                    else:
+                        logger.info(f"微信对话缓存已过期: {cache_key}")
+                        # 清理过期缓存项
+                        self._remove_cache_item(cache_key)
             
             # 调用OpenAI API
             # 使用复用的HTTP客户端，减少连接建立和销毁的开销
@@ -241,24 +261,16 @@ class AIService:
                                 cache_key = f"{user_message}_{signature}"
                                 
                                 # 清理过期缓存
-                                current_time = time.time()
-                                expired_keys = []
-                                for key, (_, expire_time) in self.__class__._wechat_cache.items():
-                                    if expire_time < current_time:
-                                        expired_keys.append(key)
-                                
-                                for key in expired_keys:
-                                    del self.__class__._wechat_cache[key]
+                                self._clean_expired_cache()
                                 
                                 # 存储新缓存
+                                current_time = time.time()
                                 expire_time = current_time + self.wechat_cache_time
                                 self.__class__._wechat_cache[cache_key] = (processed_content, expire_time)
+                                logger.info(f"写入缓存: {cache_key}")
                                 
-                                # 限制缓存大小，防止内存占用过多
-                                max_cache_size = int(os.getenv('WECHAT_MSG_AI_CACHE_SIZE', '100'))
-                                while len(self.__class__._wechat_cache) > max_cache_size:
-                                    # 移除最早的缓存项
-                                    self.__class__._wechat_cache.popitem(last=False)
+                                # 限制缓存大小
+                                self._limit_cache_size()
                             
                             return processed_content
                         else:
@@ -312,6 +324,7 @@ class AIService:
             user_message: 用户消息
             conversation_history: 对话历史（可选）
             source: 请求来源，可选值："wechat"（公众号）、"page"（页面访问）、"unknown"（未知）
+            signature: 微信请求签名，用于缓存键生成
             
         Yields:
             AI回复的内容片段
@@ -320,6 +333,31 @@ class AIService:
             if not self.is_configured():
                 yield "AI服务未配置，无法提供智能回复"
                 return
+            
+            # 微信对话缓存检查（stream模式）
+            if source == "wechat":
+                # 生成缓存键
+                cache_key = f"{user_message}_{signature}"
+                current_time = time.time()
+                
+                # 检查缓存是否存在且未过期
+                if cache_key in self.__class__._wechat_cache:
+                    cached_content, expire_time = self.__class__._wechat_cache[cache_key]
+                    if expire_time > current_time:
+                        logger.info(f"微信对话缓存命中: {cache_key}")
+                        # 模拟流式响应，分块yield缓存内容
+                        # 每次yield 100个字符
+                        chunk_size = 100
+                        for i in range(0, len(cached_content), chunk_size):
+                            chunk = cached_content[i:i+chunk_size]
+                            yield chunk
+                            # 模拟网络延迟
+                            await asyncio.sleep(0.1)
+                        return
+                    else:
+                        logger.info(f"微信对话缓存已过期: {cache_key}")
+                        # 清理过期缓存项
+                        self._remove_cache_item(cache_key)
             
             # 构建完整的消息列表
             messages = conversation_history or []
@@ -489,26 +527,16 @@ class AIService:
                         cache_key = f"{user_message}_{signature}"
                         
                         # 清理过期缓存
-                        current_time = time.time()
-                        # 创建需要移除的键列表
-                        expired_keys = []
-                        for key, (_, expire_time) in self.__class__._wechat_cache.items():
-                            if expire_time < current_time:
-                                expired_keys.append(key)
-                        
-                        # 移除过期缓存
-                        for key in expired_keys:
-                            del self.__class__._wechat_cache[key]
+                        self._clean_expired_cache()
                         
                         # 存储新缓存
+                        current_time = time.time()
                         expire_time = current_time + self.wechat_cache_time
                         self.__class__._wechat_cache[cache_key] = (processed_content, expire_time)
+                        logger.info(f"写入缓存: {cache_key}")
                         
-                        # 限制缓存大小，防止内存占用过多
-                        max_cache_size = int(os.getenv('WECHAT_MSG_AI_CACHE_SIZE', '100'))
-                        while len(self.__class__._wechat_cache) > max_cache_size:
-                            # 移除最早的缓存项
-                            self.__class__._wechat_cache.popitem(last=False)
+                        # 限制缓存大小
+                        self._limit_cache_size()
         except httpx.RemoteProtocolError:
             # 处理连接错误，重新初始化客户端
             self._init_http_client()
@@ -604,6 +632,48 @@ class AIService:
         except Exception as e:
             logger.error(f"保存AI服务配置失败: {e}")
             return False
+    
+    def _remove_cache_item(self, cache_key: str) -> None:
+        """
+        移除指定的缓存项
+        
+        Args:
+            cache_key: 要移除的缓存键
+        """
+        if cache_key in self.__class__._wechat_cache:
+            del self.__class__._wechat_cache[cache_key]
+            logger.info(f"移除缓存项: {cache_key}")
+    
+    def _clean_expired_cache(self) -> None:
+        """
+        清理所有过期的缓存项
+        """
+        current_time = time.time()
+        expired_keys = []
+        
+        # 找出所有过期的缓存键
+        for key, (_, expire_time) in self.__class__._wechat_cache.items():
+            if expire_time < current_time:
+                expired_keys.append(key)
+        
+        # 移除过期缓存
+        if expired_keys:
+            logger.info(f"清理{len(expired_keys)}个过期缓存项")
+            for key in expired_keys:
+                del self.__class__._wechat_cache[key]
+    
+    def _limit_cache_size(self) -> None:
+        """
+        限制缓存大小，超过限制时移除最早的缓存项
+        """
+        max_cache_size = int(os.getenv('WECHAT_MSG_AI_CACHE_SIZE', '100'))
+        if len(self.__class__._wechat_cache) > max_cache_size:
+            remove_count = len(self.__class__._wechat_cache) - max_cache_size
+            logger.info(f"缓存大小超过限制，移除{remove_count}个最早的缓存项")
+            
+            # 移除最早的缓存项
+            for _ in range(remove_count):
+                self.__class__._wechat_cache.popitem(last=False)
     
     def _process_response(self, content: str, source: str, timed_out: bool = False) -> str:
         """
