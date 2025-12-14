@@ -897,8 +897,7 @@ class StaticPageServer:
                                     async def collect_with_timeout():
                                         async for chunk in ai_service.stream_chat(
                                             user_message=content,
-                                            conversation_history=[],  # 微信公众号暂时不支持上下文
-                                            timeout=self.wechat_msg_ai_timeout
+                                            conversation_history=[]  # 微信公众号暂时不支持上下文
                                         ):
                                             collected.append(chunk)
                                             # 检查是否超过长度限制
@@ -927,8 +926,7 @@ class StaticPageServer:
                             ai_reply = loop.run_until_complete(asyncio.wait_for(
                                 ai_service.simple_chat(
                                     user_message=content,
-                                    conversation_history=[],  # 微信公众号暂时不支持上下文
-                                    timeout=self.wechat_msg_ai_timeout
+                                    conversation_history=[]  # 微信公众号暂时不支持上下文
                                 ),
                                 timeout=self.wechat_msg_ai_timeout
                             ))
