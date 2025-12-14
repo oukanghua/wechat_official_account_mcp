@@ -151,11 +151,11 @@ class WechatMessageHandler:
             
             # 根据交互模式调用AI服务
             if interaction_mode == 'stream':
-                # 流式模式，4.5秒超时
-                return await ai_service.simple_chat(user_message, stream=True, timeout=4.5, source="wechat")
+                # 流式模式，使用AI服务默认的超时时间（OPENAI_TIMEOUT）
+                return await ai_service.simple_chat(user_message, stream=True)
             else:
                 # 阻塞模式
-                return await ai_service.simple_chat(user_message, stream=False, source="wechat")
+                return await ai_service.simple_chat(user_message, stream=False)
                     
         except Exception as e:
             logger.error(f"获取AI回复时发生错误: {e}")

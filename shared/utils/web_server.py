@@ -275,6 +275,25 @@ class StaticPageServer:
         # 创建Flask应用实例
         self.app = Flask(__name__)
         
+        # 微信消息处理相关配置
+        # 微信消息AI响应缓存时间（秒）
+        self.wechat_msg_ai_cache_time = int(os.getenv('WECHAT_MSG_AI_CACHE_TIME', '60'))
+        # 微信消息AI处理超时时间（秒）
+        self.wechat_msg_ai_timeout = float(os.getenv('WECHAT_MSG_AI_TIMEOUT', '15'))
+        # 微信消息AI响应长度限制
+        self.wechat_msg_ai_len_limit = int(os.getenv('WECHAT_MSG_AI_LEN_LIMIT', '600'))
+        # 微信消息AI超时提示
+        self.wechat_msg_ai_timeout_prompt = os.getenv('WECHAT_MSG_AI_TIMEOUT_PROMPT', '100')
+        # 微信消息AI缓存大小限制
+        self.wechat_msg_ai_cache_size = int(os.getenv('WECHAT_MSG_AI_CACHE_SIZE', '100'))
+        
+        # 微信消息缓存结构: {msg_id: {"content": "响应内容", "expire_time": "过期时间"}}
+        self.wechat_msg_cache = {}
+        # 微信消息锁结构: {msg_id: threading.Lock()}
+        self.wechat_msg_locks = {}
+        # 锁的锁，用于保护wechat_msg_locks的访问
+        self.wechat_msg_locks_lock = threading.Lock()
+        
         # 注册路由
         self._setup_routes()
     
@@ -625,8 +644,7 @@ class StaticPageServer:
                         try:
                             async for chunk in ai_service.stream_chat(
                                 user_message=user_message,
-                                conversation_history=conversation_history,
-                                source="page"  # 来源标记为页面访问
+                                conversation_history=conversation_history
                             ):
                                 yield f"data: {json.dumps({'success': True, 'message': chunk, 'interaction_mode': 'stream'})}\n\n"
                         except Exception as e:
@@ -662,7 +680,6 @@ class StaticPageServer:
                         ai_service.simple_chat(
                             user_message=user_message,
                             conversation_history=conversation_history,
-                            source="page",  # 来源标记为页面访问
                             stream=False  # 阻塞模式
                         )
                     )
@@ -731,6 +748,72 @@ class StaticPageServer:
             logger.error(f"处理密码验证请求失败: {e}")
             return json.dumps({'error': str(e)}), 500, {'Content-Type': 'application/json'}
     
+    def _clean_expired_cache(self):
+        """清理过期的缓存项"""
+        current_time = time.time()
+        expired_keys = [msg_id for msg_id, cache_item in self.wechat_msg_cache.items() 
+                      if cache_item['expire_time'] < current_time]
+        for msg_id in expired_keys:
+            del self.wechat_msg_cache[msg_id]
+    
+    def _get_cache_item(self, msg_id):
+        """获取缓存项，如果不存在或已过期返回None"""
+        self._clean_expired_cache()  # 先清理过期缓存
+        cache_item = self.wechat_msg_cache.get(msg_id)
+        if cache_item and cache_item['expire_time'] > time.time():
+            return cache_item['content']
+        return None
+    
+    def _set_cache_item(self, msg_id, content):
+        """设置缓存项"""
+        # 先清理过期缓存
+        self._clean_expired_cache()
+        
+        # 如果缓存项已存在，先删除它（这样会将其移到字典末尾，相当于更新访问时间）
+        if msg_id in self.wechat_msg_cache:
+            del self.wechat_msg_cache[msg_id]
+        
+        # 检查缓存大小是否超过限制
+        if len(self.wechat_msg_cache) >= self.wechat_msg_ai_cache_size:
+            # 删除最早添加的缓存项（字典保持插入顺序）
+            oldest_msg_id = next(iter(self.wechat_msg_cache))
+            del self.wechat_msg_cache[oldest_msg_id]
+        
+        # 添加新的缓存项
+        expire_time = time.time() + self.wechat_msg_ai_cache_time
+        self.wechat_msg_cache[msg_id] = {
+            "content": content,
+            "expire_time": expire_time
+        }
+    
+    def _get_or_create_lock(self, msg_id):
+        """获取或创建消息锁"""
+        with self.wechat_msg_locks_lock:
+            if msg_id not in self.wechat_msg_locks:
+                self.wechat_msg_locks[msg_id] = threading.Lock()
+            return self.wechat_msg_locks[msg_id]
+    
+    def _build_wechat_response_xml(self, from_user: str, to_user: str, content: str) -> str:
+        """
+        构建微信文本消息响应的XML格式
+        
+        Args:
+            from_user: 消息来源用户（微信用户的OpenID）
+            to_user: 消息目标用户（公众号的原始ID）
+            content: 回复内容
+            
+        Returns:
+            格式化的XML响应字符串
+        """
+        return f"""<?xml version="1.0" encoding="UTF-8"?>
+                    <xml>
+                        <ToUserName><![CDATA[{from_user}]]></ToUserName>
+                        <FromUserName><![CDATA[{to_user}]]></FromUserName>
+                        <CreateTime>{int(time.time())}</CreateTime>
+                        <MsgType><![CDATA[text]]></MsgType>
+                        <Content><![CDATA[{content}]]></Content>
+                    </xml>"""
+    
     def _handle_wechat_message(self):
         """处理微信消息，调用AI服务自动回复"""
         try:
@@ -754,68 +837,122 @@ class StaticPageServer:
                 from_user = root.find('FromUserName').text if root.find('FromUserName') is not None else ''
                 create_time = root.find('CreateTime').text if root.find('CreateTime') is not None else ''
                 content = root.find('Content').text if root.find('Content') is not None else ''
+                msg_id = root.find('MsgId').text if root.find('MsgId') is not None else ''
                 
-                logger.info(f"收到微信消息: 来自{from_user}, 内容: {content}")
+                logger.info(f"收到微信消息: 来自{from_user}, 内容: {content}, MsgId: {msg_id}")
                 
-                # 4. 调用AI服务获取回复
-                ai_service = get_ai_service()
+                # 4. 检查缓存
+                cached_response = self._get_cache_item(msg_id)
+                if cached_response:
+                    logger.info(f"使用缓存的微信消息响应: MsgId={msg_id}")
+                    # 5. 生成微信响应XML
+                    response_xml = self._build_wechat_response_xml(from_user, to_user, cached_response)
+                    return response_xml, 200, {'Content-Type': 'application/xml; charset=utf-8'}
                 
-                # 确保每个线程都有自己的事件循环
+                # 5. 获取或创建消息锁
+                msg_lock = self._get_or_create_lock(msg_id)
+                
+                # 6. 尝试获取锁，处理超时情况
+                if not msg_lock.acquire(timeout=self.wechat_msg_ai_timeout):
+                    logger.warning(f"获取微信消息锁超时: MsgId={msg_id}")
+                    # 锁超时，返回默认回复
+                    default_response = "抱歉，当前请求量较大，请稍后再试"
+                    # 缓存默认回复
+                    self._set_cache_item(msg_id, default_response)
+                    response_xml = self._build_wechat_response_xml(from_user, to_user, default_response)
+                    return response_xml, 200, {'Content-Type': 'application/xml; charset=utf-8'}
+                
                 try:
-                    loop = asyncio.get_event_loop()
-                except RuntimeError:
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                
-                # 从环境变量获取交互模式，默认为stream
-                interaction_mode = os.getenv('OPENAI_INTERACTION_MODE', 'stream').strip().lower()
-                # 验证交互模式
-                if interaction_mode not in ['stream', 'block']:
-                    interaction_mode = 'block'  # 默认使用阻塞模式
-                
-                # 获取signature（用于缓存键生成）
-                signature = request.args.get('signature', '')
-                
-                # 根据交互模式调用不同的AI服务方法
-                if interaction_mode == 'stream':
-                    # stream模式：使用stream_chat方法，该方法已完整实现缓存检查和保存逻辑
-                    def stream_wrapper():
-                        async def collect_stream():
-                            collected = []
-                            async for chunk in ai_service.stream_chat(
-                                user_message=content,
-                                conversation_history=[],  # 微信公众号暂时不支持上下文
-                                source="wechat",  # 来源标记为微信，使用微信特定的超时设置
-                                signature=signature  # 传递signature用于缓存键生成
-                            ):
-                                collected.append(chunk)
-                            return ''.join(collected)
-                        return collect_stream()
+                    # 再次检查缓存，防止在获取锁的过程中其他线程已经处理了该消息
+                    cached_response = self._get_cache_item(msg_id)
+                    if cached_response:
+                        logger.info(f"使用缓存的微信消息响应: MsgId={msg_id}")
+                        response_xml = self._build_wechat_response_xml(from_user, to_user, cached_response)
+                        return response_xml, 200, {'Content-Type': 'application/xml; charset=utf-8'}
                     
-                    ai_reply = loop.run_until_complete(stream_wrapper())
-                else:
-                    # block模式：使用simple_chat方法
-                    ai_reply = loop.run_until_complete(
-                        ai_service.simple_chat(
-                            user_message=content,
-                            conversation_history=[],  # 微信公众号暂时不支持上下文
-                            source="wechat",  # 来源标记为微信，使用微信特定的超时设置
-                            stream=False,
-                            signature=signature  # 传递signature用于缓存键生成
-                        )
-                    )
-                
-                # 5. 生成微信响应XML
-                response_xml = f"""<?xml version="1.0" encoding="UTF-8"?>
-<xml>
-    <ToUserName><![CDATA[{from_user}]]></ToUserName>
-    <FromUserName><![CDATA[{to_user}]]></FromUserName>
-    <CreateTime>{int(time.time())}</CreateTime>
-    <MsgType><![CDATA[text]]></MsgType>
-    <Content><![CDATA[{ai_reply}]]></Content>
-</xml>"""
-                
-                return response_xml, 200, {'Content-Type': 'application/xml; charset=utf-8'}
+                    # 7. 调用AI服务获取回复
+                    ai_service = get_ai_service()
+                    
+                    # 确保每个线程都有自己的事件循环
+                    try:
+                        loop = asyncio.get_event_loop()
+                    except RuntimeError:
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                    
+                    # 从环境变量获取交互模式，默认为stream
+                    interaction_mode = os.getenv('OPENAI_INTERACTION_MODE', 'stream').strip().lower()
+                    # 验证交互模式
+                    if interaction_mode not in ['stream', 'block']:
+                        interaction_mode = 'block'  # 默认使用阻塞模式
+                    
+                    # 根据交互模式调用不同的AI服务方法
+                    if interaction_mode == 'stream':
+                        # stream模式：使用stream_chat方法
+                        def stream_wrapper():
+                            async def collect_stream():
+                                collected = []
+                                try:
+                                    # 使用asyncio.wait_for设置超时
+                                    async def collect_with_timeout():
+                                        async for chunk in ai_service.stream_chat(
+                                            user_message=content,
+                                            conversation_history=[],  # 微信公众号暂时不支持上下文
+                                            timeout=self.wechat_msg_ai_timeout
+                                        ):
+                                            collected.append(chunk)
+                                            # 检查是否超过长度限制
+                                            if len(''.join(collected)) >= self.wechat_msg_ai_len_limit:
+                                                collected.append("..." + self.wechat_msg_ai_timeout_prompt)
+                                                break
+                                    
+                                    await asyncio.wait_for(collect_with_timeout(), timeout=self.wechat_msg_ai_timeout)
+                                except asyncio.TimeoutError:
+                                    logger.warning(f"微信消息AI响应超时: MsgId={msg_id}")
+                                    # 添加超时提示
+                                    if len(''.join(collected)) < self.wechat_msg_ai_len_limit:
+                                        collected.append(self.wechat_msg_ai_timeout_prompt)
+                                except Exception as e:
+                                    logger.error(f"微信消息AI响应异常: {e}")
+                                    collected.append(f"\n\n[响应异常: {str(e)}]")
+                                
+                                return ''.join(collected)
+                            return collect_stream()
+                        
+                        ai_reply = loop.run_until_complete(stream_wrapper())
+                    else:
+                        # block模式：使用simple_chat方法
+                        try:
+                            # 使用asyncio.wait_for设置超时
+                            ai_reply = loop.run_until_complete(asyncio.wait_for(
+                                ai_service.simple_chat(
+                                    user_message=content,
+                                    conversation_history=[],  # 微信公众号暂时不支持上下文
+                                    timeout=self.wechat_msg_ai_timeout
+                                ),
+                                timeout=self.wechat_msg_ai_timeout
+                            ))
+                        except asyncio.TimeoutError:
+                            logger.warning(f"微信消息AI响应超时: MsgId={msg_id}")
+                            ai_reply = "抱歉，当前AI服务响应超时，请稍后再试"
+                        except Exception as e:
+                            logger.error(f"微信消息AI响应异常: {e}")
+                            ai_reply = f"抱歉，当前AI服务响应异常: {str(e)}"
+                    
+                    # 8. 处理响应长度限制
+                    if len(ai_reply) > self.wechat_msg_ai_len_limit:
+                        ai_reply = ai_reply[:self.wechat_msg_ai_len_limit] + "..." + self.wechat_msg_ai_timeout_prompt
+                    
+                    # 9. 缓存响应
+                    self._set_cache_item(msg_id, ai_reply)
+                    
+                    # 10. 生成微信响应XML
+                    response_xml = self._build_wechat_response_xml(from_user, to_user, ai_reply)
+                    
+                    return response_xml, 200, {'Content-Type': 'application/xml; charset=utf-8'}
+                finally:
+                    # 释放锁
+                    msg_lock.release()
             else:
                 # 非文本消息，返回空响应
                 return "success", 200, {'Content-Type': 'text/plain; charset=utf-8'}

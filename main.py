@@ -52,39 +52,52 @@ def main():
         
         logger.info("微信公众号 MCP 服务器启动中...")
         
-        # 启动Web服务器 - 使用统一的WECHAT_MSG_SERVER_PORT
-        static_page_port = int(os.getenv('WECHAT_MSG_SERVER_PORT', '3004'))
-        try:
-            from shared.utils.web_server import start_static_page_server
-            from tools.static_pages import StaticPageManager
-            
-            # 获取正确的路径
-            script_dir = Path(__file__).parent
-            storage_dir = str(script_dir / 'data' / 'static_pages')
-            db_file = str(script_dir / 'data' / 'storage.db')
-            
-            # 初始化Web页面管理器
-            static_page_manager = StaticPageManager(storage_dir=storage_dir, db_file=db_file)
-            
-            logger.info(f"启动Web服务器，端口: {static_page_port}")
-            success = start_static_page_server(static_page_port, static_page_manager=static_page_manager)
-            if success:
-                logger.info(f"Web服务器启动成功")
-                logger.info(f"访问地址: http://localhost:{static_page_port}")
-            else:
-                logger.warning("Web服务器启动失败")
-        except Exception as e:
-            logger.warning(f"Web服务器启动异常: {e}")
-            logger.exception(e)
+        # 检查微信消息服务器启动开关
+        wechat_server_enable = os.getenv('WECHAT_MSG_SERVER_ENABLE', 'true').strip().lower() == 'true'
         
-        # 直接导入并运行 MCP 服务器
-        logger.info("启动 MCP 服务器...")
-        try:
-            import mcp_server
-            mcp_server.main()
-        except Exception as e:
-            logger.error(f"MCP 服务器启动失败: {e}")
-            sys.exit(1)
+        if wechat_server_enable:
+            # 启动Web服务器 - 使用统一的WECHAT_MSG_SERVER_PORT
+            static_page_port = int(os.getenv('WECHAT_MSG_SERVER_PORT', '3004'))
+            try:
+                from shared.utils.web_server import start_static_page_server
+                from tools.static_pages import StaticPageManager
+                
+                # 获取正确的路径
+                script_dir = Path(__file__).parent
+                storage_dir = str(script_dir / 'data' / 'static_pages')
+                db_file = str(script_dir / 'data' / 'storage.db')
+                
+                # 初始化Web页面管理器
+                static_page_manager = StaticPageManager(storage_dir=storage_dir, db_file=db_file)
+                
+                logger.info(f"启动Web服务器，端口: {static_page_port}")
+                success = start_static_page_server(static_page_port, static_page_manager=static_page_manager)
+                if success:
+                    logger.info(f"Web服务器启动成功")
+                    logger.info(f"访问地址: http://localhost:{static_page_port}")
+                else:
+                    logger.warning("Web服务器启动失败")
+            except Exception as e:
+                logger.warning(f"Web服务器启动异常: {e}")
+                logger.exception(e)
+        else:
+            logger.info("微信消息服务器已禁用 (WECHAT_MSG_SERVER_ENABLE=false)")
+        
+        # 检查MCP服务器启动开关
+        mcp_enable = os.getenv('MCP_ENABLE', 'true').strip().lower() == 'true'
+        
+        if mcp_enable:
+            # 直接导入并运行 MCP 服务器
+            logger.info("启动 MCP 服务器...")
+            try:
+                import mcp_server
+                mcp_server.main()
+            except Exception as e:
+                logger.error(f"MCP 服务器启动失败: {e}")
+                sys.exit(1)
+        else:
+            logger.info("MCP服务器已禁用 (MCP_ENABLE=false)")
+            logger.info("所有已启用的服务器启动完成")
         
     except KeyboardInterrupt:
         logger.info("收到中断信号，正在关闭服务器...")
