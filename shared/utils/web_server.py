@@ -10,6 +10,7 @@ import hashlib
 import re
 import asyncio
 import time
+import requests
 from pathlib import Path
 from typing import Optional, Dict, List, Any, Union
 from xml.etree import ElementTree as ET
@@ -287,6 +288,10 @@ class StaticPageServer:
         # 微信消息AI缓存大小限制
         self.wechat_msg_ai_cache_size = int(os.getenv('WECHAT_MSG_AI_CACHE_SIZE', '100'))
         
+        # 反向代理配置
+        # 从环境变量读取代理目标URL
+        self.proxy_target_url = os.getenv('WECHAT_MSG_PROXY_TARGET_URL', '').strip()
+        
         # 微信消息缓存结构: {msg_id: {"content": "响应内容", "expire_time": "过期时间"}}
         self.wechat_msg_cache = {}
         # 微信消息锁结构: {msg_id: threading.Lock()}
@@ -362,6 +367,9 @@ class StaticPageServer:
             elif path == '/wechat/reply':
                 # 微信服务器验证
                 return self._handle_wechat_verify()
+            elif path.startswith('/proxy/'):
+                # 反向代理请求
+                return self._handle_proxy_request(path)
             else:
                 return "Page not found", 404
                 
@@ -559,6 +567,78 @@ class StaticPageServer:
         """处理favicon请求"""
         # 返回空响应
         return "", 200, {'Content-Type': 'image/x-icon'}
+    
+    def _handle_proxy_request(self, path):
+        """处理反向代理请求"""
+        try:
+            # 检查代理目标URL是否配置
+            if not self.proxy_target_url:
+                logger.error("代理目标URL未配置，请设置WECHAT_MSG_PROXY_TARGET_URL环境变量")
+                return "Proxy target URL not configured", 500
+            
+            # 从请求路径中提取代理的路径部分（去掉/proxy/前缀）
+            proxy_path = path[7:]  # 去掉/proxy/前缀
+            
+            # 构建完整的目标URL
+            if proxy_path:
+                if self.proxy_target_url.endswith('/'):
+                    target_url = f"{self.proxy_target_url}{proxy_path}"
+                else:
+                    target_url = f"{self.proxy_target_url}/{proxy_path}"
+            else:
+                target_url = self.proxy_target_url
+            
+            # 转发请求到目标URL
+            logger.info(f"代理请求: {path} -> {target_url}")
+            
+            # 转发请求头
+            headers = dict(request.headers)
+            # 移除Host头，让requests自动设置
+            headers.pop('Host', None)
+            # 移除Accept-Encoding头，让requests不使用压缩
+            headers.pop('Accept-Encoding', None)
+            
+            # 发送GET请求到目标URL，禁止压缩以避免解码问题
+            response = requests.get(
+                target_url,
+                headers=headers,
+                params=request.args,
+                stream=True,  # 使用流式响应，避免加载大文件到内存
+                verify=False,  # 忽略SSL验证（根据需要调整）
+                timeout=60  # 设置超时
+            )
+            
+            # 构建响应头
+            response_headers = dict(response.headers)
+            
+            # 移除所有可能导致解码问题的头
+            problematic_headers = ['Content-Encoding', 'Transfer-Encoding', 'Content-Length']
+            for header in problematic_headers:
+                if header in response_headers:
+                    logger.debug(f"移除响应头: {header} = {response_headers[header]}")
+                    response_headers.pop(header)
+            
+            # 确保Content-Type头存在，避免浏览器猜测
+            if 'Content-Type' not in response_headers:
+                response_headers['Content-Type'] = 'text/html; charset=utf-8'
+                logger.debug("未检测到Content-Type头，设置默认值为text/html; charset=utf-8")
+            
+            # 返回响应 - 使用iter_content确保内容正确处理
+            logger.info(f"代理响应: {target_url} -> 状态码: {response.status_code}")
+            return Response(
+                response.iter_content(chunk_size=1024, decode_unicode=False),  # 不自动解码，保持原始字节
+                status=response.status_code,
+                headers=response_headers
+            )
+            
+        except requests.exceptions.RequestException as e:
+            logger.error(f"代理请求失败: {e}")
+            return f"Proxy request failed: {e}", 502
+        except Exception as e:
+            logger.error(f"处理代理请求时发生错误: {e}")
+            import traceback
+            logger.error(f"错误堆栈: {traceback.format_exc()}")
+            return f"Proxy error: {e}", 500
     
     def _verify_wechat_signature(self):
         """验证微信签名"""
