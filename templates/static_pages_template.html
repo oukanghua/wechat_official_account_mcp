@@ -13,9 +13,27 @@
         .container { max-width: 1200px; margin: 0 auto; }
         
         /* 页面头 */
-        .page-header { background: white; padding: 30px; border-radius: 12px; margin-bottom: 20px; box-shadow: 0 8px 32px rgba(0,0,0,0.1); }
-        .page-header h1 { color: #2c3e50; margin-bottom: 10px; font-size: 2.5rem; }
-        .page-header p { color: #6c757d; font-size: 1.1rem; }
+        .page-header { background: white; padding: 20px; border-radius: 12px; margin-bottom: 20px; box-shadow: 0 8px 32px rgba(0,0,0,0.1); display: flex; justify-content: space-between; align-items: center; }
+        .page-header h1 { color: #2c3e50; margin-bottom: 5px; font-size: 1.5rem; }
+        .page-header p { color: #6c757d; font-size: 0.9rem; margin: 0; }
+        
+        /* 页面头布局 */
+        .header-left { flex: 1; text-align: left; }
+        .header-center { flex: 1; text-align: center; padding-top: 35px;}
+        .header-right { flex: 1; text-align: right; }
+        
+        /* 响应式调整 */
+        @media (max-width: 992px) {
+            .page-header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 15px;
+            }
+            .header-left, .header-center, .header-right {
+                width: 100%;
+                text-align: left;
+            }
+        }
         
         /* 面包屑导航 */
         .breadcrumb { margin-bottom: 20px; }
@@ -23,8 +41,12 @@
         .breadcrumb a:hover { text-decoration: underline; }
         .breadcrumb span { color: #ffffff; margin: 0 5px; }
         
+        /* 统计信息 */
+        .stats { margin: 0; padding: 0; border: none; text-align: center; }
+        .stats span { color: #6c757d; font-size: 1rem; }
+        
         /* 操作栏 */
-        .actions-bar { background: white; padding: 20px; border-radius: 12px; margin-bottom: 20px; box-shadow: 0 8px 32px rgba(0,0,0,0.1); display: flex; justify-content: space-between; align-items: center; }
+        .actions-bar { margin: 0; display: flex; justify-content: flex-end; align-items: center; background: transparent; padding: 0; box-shadow: none; border-radius: 0; }
         .btn { padding: 10px 20px; border-radius: 6px; font-weight: 500; transition: all 0.2s ease; cursor: pointer; text-decoration: none; display: inline-block; text-align: center; }
         .btn-primary { background-color: #3498db; color: white; border: none; }
         .btn-primary:hover { background-color: #2980b9; }
@@ -56,12 +78,9 @@
         .page-btn.current { background-color: #3498db; color: white; border-color: #3498db; }
         .page-btn.disabled { opacity: 0.5; cursor: not-allowed; }
         
-        /* 统计信息 */
-        .stats { background: white; padding: 20px; border-radius: 12px; margin-bottom: 20px; box-shadow: 0 8px 32px rgba(0,0,0,0.1); text-align: center; }
-        .stats span { color: #6c757d; font-size: 1rem; }
-        
         /* 响应式设计 */
         @media (max-width: 768px) {
+            .header-center {display: none;}
             .page-item { flex-direction: column; align-items: flex-start; gap: 10px; }
             .page-actions { align-self: flex-end; }
             .page-meta { flex-direction: column; gap: 5px; }
@@ -78,21 +97,27 @@
             <span>静态网页列表</span>
         </div>
         
-        <!-- 页面头 -->
+        <!-- 页面头容器，包含页面头、统计信息和操作栏 -->
         <div class="page-header">
-            <h1>📂 静态网页列表</h1>
-            <p>浏览和管理所有生成的静态HTML网页</p>
-        </div>
-        
-        <!-- 统计信息 -->
-        <div class="stats">
-            <span>共 {{ total_files }} 个文件，总大小：{{ total_size }}</span>
-        </div>
-        
-        <!-- 操作栏 -->
-        <div class="actions-bar">
-            <div>
-                <button class="btn btn-primary" onclick="refreshFileList()">🔄 刷新文件列表</button>
+            <div class="header-left">
+                <h1>📂 静态网页列表</h1>
+                <p>浏览和管理所有生成的静态HTML网页</p>
+            </div>
+            
+            <!-- 统计信息 -->
+            <div class="header-center">
+                <div class="stats">
+                    <span>共 {{ total_files }} 个文件，总大小：{{ total_size }}</span>
+                </div>
+            </div>
+            
+            <!-- 操作栏 -->
+            <div class="header-right">
+                <div class="actions-bar">
+                    <div>
+                        <button class="btn btn-primary" onclick="refreshFileList()">🔄 刷新文件列表</button>
+                    </div>
+                </div>
             </div>
         </div>
         

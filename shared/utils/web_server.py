@@ -390,6 +390,9 @@ class StaticPageServer:
             elif path == '/api/validate-password':
                 # 密码验证请求
                 return self._handle_validate_password()
+            elif path == '/api/static-page/delete':
+                # 静态页面删除API
+                return self._handle_delete_static_page()
             elif path == '/wechat/reply':
                 # 微信消息接收
                 return self._handle_wechat_message()
@@ -430,29 +433,43 @@ class StaticPageServer:
     def _generate_index_page(self):
         """生成索引页面"""
         try:
-            # 读取元数据
-            metadata_file = Path(self.pages_dir) / "metadata.json"
-            pages = []
-            
-            if metadata_file.exists():
-                with open(metadata_file, 'r', encoding='utf-8') as f:
-                    metadata = json.load(f)
-                    pages = list(metadata.values())
-            
-            # 获取存储统计信息
+            # 获取页面列表和统计信息
             stats = {
-                'total_files': len(pages),
-                'total_size': sum(page.get('file_size', 0) for page in pages),
+                'total_files': 0,
+                'total_size': 0,
                 'earliest_created': None,
                 'latest_created': None
             }
             
-            if pages:
-                created_times = [page.get('created_at', '') for page in pages if page.get('created_at')]
-                created_times.sort()
-                if created_times:
-                    stats['earliest_created'] = created_times[0]
-                    stats['latest_created'] = created_times[-1]
+            pages = []
+            # 优先使用static_page_manager获取数据
+            if hasattr(self, 'static_page_manager') and self.static_page_manager:
+                pages_info = self.static_page_manager.list_pages()
+                pages = pages_info.get('pages', [])
+                
+                # 使用静态页面管理器获取统计信息
+                stats_info = self.static_page_manager.get_storage_stats()
+                stats['total_files'] = stats_info['total_files']
+                stats['total_size'] = stats_info['total_size_bytes']
+                stats['earliest_created'] = stats_info['earliest_created']
+                stats['latest_created'] = stats_info['latest_created']
+            else:
+                # 备用方案：读取元数据
+                metadata_file = Path(self.pages_dir) / "metadata.json"
+                if metadata_file.exists():
+                    with open(metadata_file, 'r', encoding='utf-8') as f:
+                        metadata = json.load(f)
+                        pages = list(metadata.values())
+                    
+                    stats['total_files'] = len(pages)
+                    stats['total_size'] = sum(page.get('file_size', 0) for page in pages)
+                    
+                    if pages:
+                        created_times = [page.get('created_at', '') for page in pages if page.get('created_at')]
+                        created_times.sort()
+                        if created_times:
+                            stats['earliest_created'] = created_times[0]
+                            stats['latest_created'] = created_times[-1]
             
             # 格式化文件大小
             def format_file_size(size_bytes):
@@ -475,7 +492,7 @@ class StaticPageServer:
             template_vars = {
                 'title': '静态网页服务',
                 'subtitle': '生成和管理静态HTML网页的HTTP访问服务',
-                'pages_url': f'{self.context_path}/pages/',
+                'pages_url': f'{self.context_path}/static-pages/',
                 'chat_url': f'{self.context_path}/chat',
                 'total_files': stats['total_files'],
                 'total_size': format_file_size(stats['total_size']),
@@ -564,9 +581,23 @@ class StaticPageServer:
             return json.dumps({'error': str(e)}), 500, {'Content-Type': 'application/json'}
     
     def _handle_favicon(self):
-        """处理favicon请求"""
-        # 返回空响应
-        return "", 200, {'Content-Type': 'image/x-icon'}
+        """处理favicon请求，读取项目根目录下的favicon.ico文件"""
+        try:
+            # 构建favicon.ico文件路径（项目根目录）
+            favicon_path = Path(__file__).parent.parent.parent / "favicon.ico"
+            
+            if favicon_path.exists() and favicon_path.is_file():
+                # 读取favicon文件内容
+                with open(favicon_path, 'rb') as f:
+                    favicon_content = f.read()
+                
+                return favicon_content, 200, {'Content-Type': 'image/x-icon'}
+            else:
+                # 如果文件不存在，返回空响应
+                return "", 200, {'Content-Type': 'image/x-icon'}
+        except Exception as e:
+            logger.error(f"处理favicon请求失败: {e}")
+            return "", 200, {'Content-Type': 'image/x-icon'}
     
     def _handle_proxy_request(self, path):
         """处理反向代理请求"""
@@ -827,6 +858,31 @@ class StaticPageServer:
         except Exception as e:
             logger.error(f"处理密码验证请求失败: {e}")
             return json.dumps({'error': str(e)}), 500, {'Content-Type': 'application/json'}
+    
+    def _handle_delete_static_page(self):
+        """处理静态页面删除请求"""
+        try:
+            # 获取请求参数
+            filename = request.args.get('filename')
+            
+            if not filename:
+                return json.dumps({'success': False, 'error': '请提供文件名'}), 400, {'Content-Type': 'application/json'}
+            
+            # 检查是否有静态页面管理器
+            if not hasattr(self, 'static_page_manager') or not self.static_page_manager:
+                return json.dumps({'success': False, 'error': '静态页面管理器未初始化'}), 500, {'Content-Type': 'application/json'}
+            
+            # 调用静态页面管理器删除页面
+            success = self.static_page_manager.delete_page(filename)
+            
+            if success:
+                return json.dumps({'success': True, 'message': '文件删除成功'}), 200, {'Content-Type': 'application/json'}
+            else:
+                return json.dumps({'success': False, 'error': '文件不存在或删除失败'}), 404, {'Content-Type': 'application/json'}
+            
+        except Exception as e:
+            logger.error(f"处理静态页面删除请求失败: {e}")
+            return json.dumps({'success': False, 'error': str(e)}), 500, {'Content-Type': 'application/json'}
     
     def _clean_expired_cache(self):
         """清理过期的缓存项"""

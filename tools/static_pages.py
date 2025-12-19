@@ -69,19 +69,23 @@ def _validate_html_content(html_content: str) -> bool:
 class StaticPageManager:
     """静态网页管理器"""
     
-    def __init__(self, storage_dir: str = "data/static_pages", db_file: str = "data/storage.db"):
+    def __init__(self, storage_dir: str = "data/static_pages", db_file: str = "data/storage.db", storage_manager: Optional[StorageManager] = None):
         """
         初始化静态网页管理器
         
         Args:
             storage_dir: 静态网页存储目录
             db_file: 存储管理器数据库文件路径
+            storage_manager: 外部传入的存储管理器实例（可选）
         """
         self.storage_dir = Path(storage_dir)
         self.storage_dir.mkdir(parents=True, exist_ok=True)
         
-        # 初始化存储管理器
-        self.storage_manager = StorageManager(db_file)
+        # 使用外部传入的存储管理器实例，否则创建新实例
+        if storage_manager:
+            self.storage_manager = storage_manager
+        else:
+            self.storage_manager = StorageManager(db_file)
         
         # 加载元数据
         self.metadata_file = self.storage_dir / "metadata.json"

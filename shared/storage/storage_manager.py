@@ -379,6 +379,8 @@ class StorageManager:
         Returns:
             素材信息字典，如果不存在则返回 None
         """
+        # 每次都重新从文件加载数据，确保获取最新内容
+        self._load_data()
         for media in self.data['media']:
             if media.get('media_id') == media_id:
                 return media
@@ -394,6 +396,8 @@ class StorageManager:
         Returns:
             素材列表
         """
+        # 每次都重新从文件加载数据，确保获取最新内容
+        self._load_data()
         if media_type:
             return [m for m in self.data['media'] if m.get('type') == media_type]
         return self.data['media'].copy()
@@ -450,6 +454,8 @@ class StorageManager:
         Returns:
             微信消息信息字典，如果不存在则返回 None
         """
+        # 每次都重新从文件加载数据，确保获取最新内容
+        self._load_data()
         for message in self.data['wechat_messages']:
             if message.get('message_id') == message_id:
                 return message
@@ -465,6 +471,8 @@ class StorageManager:
         Returns:
             微信消息列表
         """
+        # 每次都重新从文件加载数据，确保获取最新内容
+        self._load_data()
         return self.data['wechat_messages'][:limit]
 
     def delete_wechat_message(self, message_id: str) -> bool:
@@ -532,6 +540,13 @@ class StorageManager:
             logger.info(f"保存静态网页信息: {filename}")
 
         self._save_data()
+        
+        # 如果启用了远程存储，将静态页面文件同步到S3
+        if self.remote_enabled and self.s3_client:
+            filepath = page_info.get('filepath')
+            if filepath and os.path.exists(filepath):
+                s3_key = self._get_s3_key(filepath)
+                self._upload_to_s3(filepath, s3_key)
 
     def get_static_page(self, filename: str) -> Optional[Dict[str, Any]]:
         """
@@ -543,6 +558,8 @@ class StorageManager:
         Returns:
             静态网页信息字典，如果不存在则返回 None
         """
+        # 每次都重新从文件加载数据，确保获取最新内容
+        self._load_data()
         for page in self.data['static_pages']:
             if page.get('filename') == filename:
                 return page
@@ -555,6 +572,8 @@ class StorageManager:
         Returns:
             静态网页列表
         """
+        # 每次都重新从文件加载数据，确保获取最新内容
+        self._load_data()
         return self.data['static_pages'].copy()
 
     def delete_static_page(self, filename: str) -> bool:
@@ -569,6 +588,29 @@ class StorageManager:
         """
         for i, page in enumerate(self.data['static_pages']):
             if page.get('filename') == filename:
+                # 获取文件路径
+                filepath = page.get('filepath')
+                
+                # 删除本地文件
+                if filepath and os.path.exists(filepath):
+                    try:
+                        os.remove(filepath)
+                        logger.info(f"删除本地静态网页文件: {filepath}")
+                    except Exception as e:
+                        logger.error(f"删除本地静态网页文件失败: {filepath}, 错误: {e}")
+                
+                # 如果启用了远程存储，从S3删除文件
+                if self.remote_enabled and self.s3_client:
+                    if filepath:
+                        s3_key = self._get_s3_key(filepath)
+                        self._delete_from_s3(s3_key)
+                    else:
+                        # 如果没有filepath，构建默认路径
+                        default_filepath = os.path.join(os.getcwd(), 'data', 'static_pages', filename)
+                        s3_key = self._get_s3_key(default_filepath)
+                        self._delete_from_s3(s3_key)
+                
+                # 删除记录并保存数据
                 del self.data['static_pages'][i]
                 self._save_data()
                 logger.info(f"删除静态网页信息: {filename}")
@@ -582,6 +624,8 @@ class StorageManager:
         Returns:
             包含文件数量、总大小、最早创建时间、最新创建时间的字典
         """
+        # 每次都重新从文件加载数据，确保获取最新内容
+        self._load_data()
         pages = self.data['static_pages']
         total_files = len(pages)
         

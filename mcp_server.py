@@ -107,7 +107,8 @@ async def handle_wechat_tool(tool_name: str, arguments: dict = None) -> str:
         # 静态网页工具
         elif tool_name == "static_page":
             from tools.static_pages import StaticPageManager
-            static_page_manager = StaticPageManager()
+            # 使用全局共享的storage_manager实例，确保数据同步
+            static_page_manager = StaticPageManager(storage_manager=storage_manager)
             from tools.static_pages import handle_static_page_tool
             result = handle_static_page_tool(arguments, static_page_manager)
             return result
