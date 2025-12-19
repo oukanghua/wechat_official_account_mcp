@@ -424,6 +424,49 @@ async def static_page(action: str = None, html_content: str = None, filename: st
         arguments['filename'] = filename
     return await handle_wechat_tool("static_page", arguments)
 
+@mcp.tool()
+async def storage_sync(direction: str = "from_remote") -> str:
+    """远程存储同步工具，用于在本地和S3兼容存储之间同步文件
+
+    Args:
+        direction: 同步方向 (from_remote - 从远程同步到本地, to_remote - 从本地同步到远程)
+        
+    Returns:
+        同步结果文本
+        
+    Examples:
+        >>> # 从远程S3存储同步到本地
+        >>> await storage_sync(direction="from_remote")
+        
+        >>> # 从本地同步到远程S3存储
+        >>> await storage_sync(direction="to_remote")
+    """
+    try:
+        from shared.storage.storage_manager import StorageManager
+        
+        # 初始化存储管理器
+        storage_manager = StorageManager()
+        
+        # 执行同步操作
+        if direction == "from_remote":
+            result = storage_manager.sync_from_remote()
+        elif direction == "to_remote":
+            result = storage_manager.sync_to_remote()
+        else:
+            return f"错误：无效的同步方向 '{direction}'，支持的方向：from_remote, to_remote"
+        
+        if result['status'] == 'success':
+            return (f"同步成功！\n" + 
+                   f"消息：{result['message']}\n" + 
+                   f"同步文件数：{result.get('sync_count', 0)}\n" + 
+                   f"覆盖文件数：{result.get('override_count', 0)}" + 
+                   (f"\n总对象数：{result.get('total_objects', 0)}" if 'total_objects' in result else ""))
+        else:
+            return f"同步失败：{result['message']}"
+    except Exception as e:
+        logger.error(f"同步操作失败: {e}")
+        return f"同步操作失败: {str(e)}"
+
 # @mcp.tool()
 # async def wechat_template(action: str = None, title: str = None, intro: str = None, image: str = None, warning: str = None, sections: list = None, tags: list = None, action_button: dict = None, footer: list = None, template_name: str = None) -> str:
 #     """根据P站样式模板生成公众号文章HTML内容。当用户说'使用p站模板'或'使用phub模板'时，使用此工具根据提供的内容生成符合P站样式的HTML文章。

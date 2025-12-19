@@ -11,3 +11,7 @@ click>=8.0.0          # 命令行界面
 rich>=13.0.0          # 终端美化输出
 # WSGI服务器依赖
 gevent>=25.0.0        # WSGI服务器（用于替代Flask开发服务器）
+# S3存储支持
+boto3>=1.34.0         # AWS SDK for Python，用于S3兼容存储服务
+# 定时任务支持
+apscheduler>=3.10.0   # 高级Python调度库，用于定时同步功能

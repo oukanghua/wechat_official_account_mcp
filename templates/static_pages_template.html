@@ -23,6 +23,19 @@
         .breadcrumb a:hover { text-decoration: underline; }
         .breadcrumb span { color: #ffffff; margin: 0 5px; }
         
+        /* 操作栏 */
+        .actions-bar { background: white; padding: 20px; border-radius: 12px; margin-bottom: 20px; box-shadow: 0 8px 32px rgba(0,0,0,0.1); display: flex; justify-content: space-between; align-items: center; }
+        .btn { padding: 10px 20px; border-radius: 6px; font-weight: 500; transition: all 0.2s ease; cursor: pointer; text-decoration: none; display: inline-block; text-align: center; }
+        .btn-primary { background-color: #3498db; color: white; border: none; }
+        .btn-primary:hover { background-color: #2980b9; }
+        .btn-danger { background-color: #e74c3c; color: white; border: none; }
+        .btn-danger:hover { background-color: #c0392b; }
+        .btn-secondary { background-color: #6c757d; color: white; border: none; }
+        .btn-secondary:hover { background-color: #5a6268; }
+        .message { margin-top: 10px; padding: 10px; border-radius: 6px; font-size: 0.9rem; }
+        .message.success { background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .message.error { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        
         /* 页面列表 */
         .pages-container { background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 8px 32px rgba(0,0,0,0.1); }
         .page-item { padding: 20px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; transition: background-color 0.2s ease; }
@@ -33,6 +46,8 @@
         .page-actions { display: flex; gap: 10px; }
         .page-link { background-color: #3498db; color: white; text-decoration: none; padding: 8px 16px; border-radius: 6px; font-weight: 500; transition: background-color 0.2s ease; }
         .page-link:hover { background-color: #2980b9; }
+        .page-delete { background-color: #e74c3c; color: white; text-decoration: none; padding: 8px 16px; border-radius: 6px; font-weight: 500; transition: background-color 0.2s ease; border: none; cursor: pointer; font-size: 14px; }
+        .page-delete:hover { background-color: #c0392b; }
         
         /* 分页 */
         .pagination { display: flex; justify-content: center; align-items: center; gap: 5px; margin-top: 20px; padding: 20px; background: white; border-radius: 12px; box-shadow: 0 8px 32px rgba(0,0,0,0.1); }
@@ -50,6 +65,7 @@
             .page-item { flex-direction: column; align-items: flex-start; gap: 10px; }
             .page-actions { align-self: flex-end; }
             .page-meta { flex-direction: column; gap: 5px; }
+            .actions-bar { flex-direction: column; align-items: flex-start; gap: 10px; }
         }
     </style>
 </head>
@@ -73,6 +89,16 @@
             <span>共 {{ total_files }} 个文件，总大小：{{ total_size }}</span>
         </div>
         
+        <!-- 操作栏 -->
+        <div class="actions-bar">
+            <div>
+                <button class="btn btn-primary" onclick="refreshFileList()">🔄 刷新文件列表</button>
+            </div>
+        </div>
+        
+        <!-- 消息提示 -->
+        <div id="message" class="message" style="display: none;"></div>
+        
         <!-- 页面列表 -->
         {% if pages_info %}
             <div class="pages-container">
@@ -87,6 +113,7 @@
                     </div>
                     <div class="page-actions">
                         <a href="{{ context_path }}/pages/{{ page.filename }}" class="page-link" target="_blank">访问页面</a>
+                        <button class="page-delete" onclick="deleteFile('{{ page.filename }}')">删除</button>
                     </div>
                 </div>
                 {% endfor %}
@@ -100,5 +127,56 @@
             {{ pagination_html }}
         {% endif %}
     </div>
+    
+    <script>
+        // 刷新文件列表
+        function refreshFileList() {
+            showMessage('正在刷新文件列表...', 'success');
+            window.location.reload();
+        }
+        
+        // 删除文件
+        function deleteFile(filename) {
+            if (confirm(`确定要删除文件 "${filename}" 吗？此操作不可恢复。`)) {
+                showMessage(`正在删除文件 ${filename}...`, 'success');
+                
+                // 发送删除请求
+                fetch(`{{ context_path }}/api/static-page/delete?filename=${encodeURIComponent(filename)}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        showMessage(`文件 ${filename} 删除成功！`, 'success');
+                        // 刷新页面
+                        setTimeout(() => {
+                            window.location.reload();
+                        }, 1000);
+                    } else {
+                        showMessage(`删除失败: ${data.error || '未知错误'}`, 'error');
+                    }
+                })
+                .catch(error => {
+                    showMessage(`删除失败: ${error.message}`, 'error');
+                });
+            }
+        }
+        
+        // 显示消息
+        function showMessage(message, type) {
+            const messageDiv = document.getElementById('message');
+            messageDiv.textContent = message;
+            messageDiv.className = `message ${type}`;
+            messageDiv.style.display = 'block';
+            
+            // 3秒后自动隐藏
+            setTimeout(() => {
+                messageDiv.style.display = 'none';
+            }, 3000);
+        }
+    </script>
 </body>
 </html>

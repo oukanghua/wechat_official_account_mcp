@@ -1,17 +1,22 @@
 """
-存储管理器 - 管理本地素材存储
+存储管理器 - 管理本地素材存储，支持S3兼容存储服务
 """
 import os
 import json
 import logging
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
+from datetime import datetime
+from dotenv import load_dotenv
+
+# 加载环境变量
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 
 
 class StorageManager:
-    """存储管理器"""
+    """存储管理器 - 支持本地存储和S3兼容存储"""
     
     def __init__(self, db_file: str = "data/storage.db"):
         """
@@ -26,7 +31,97 @@ class StorageManager:
             'static_pages': [],  # 静态网页列表
             'wechat_messages': []  # 微信消息列表
         }
+        
+        # 初始化S3相关配置
+        self._init_s3_config()
+        
+        # 加载数据
         self._load_data()
+        
+        # 启动定时同步（如果配置了）
+        self._start_scheduled_sync()
+    
+    def _init_s3_config(self):
+        """初始化S3相关配置"""
+        # 远程存储开关
+        self.remote_enabled = os.getenv('STORAGE_REMOTE_ENABLE', 'false').lower() == 'true'
+        
+        # S3配置
+        self.s3_endpoint_url = os.getenv('STORAGE_S3_ENDPOINT', '')
+        self.s3_access_key = os.getenv('STORAGE_S3_ACCESS_KEY', '')
+        self.s3_secret_key = os.getenv('STORAGE_S3_SECRET_KEY', '')
+        self.s3_bucket_name = os.getenv('STORAGE_S3_BUCKET', '')
+        self.s3_region_name = os.getenv('STORAGE_S3_REGION', '')
+        self.s3_path_prefix = os.getenv('STORAGE_S3_PATH_PREFIX', '')
+        
+        # 定时同步配置
+        self.sync_cron = os.getenv('STORAGE_SYN_CRON', '')
+        self.sync_override = os.getenv('STORAGE_SYN_OVERRIDE', 'false').lower() == 'true'
+        
+        # 初始化S3客户端（如果启用了远程存储）
+        self.s3_client = None
+        if self.remote_enabled:
+            self._init_s3_client()
+    
+    def _init_s3_client(self):
+        """初始化S3客户端"""
+        try:
+            import boto3
+            from botocore.config import Config
+            
+            # 创建S3客户端配置
+            s3_config = Config(
+                region_name=self.s3_region_name,
+                signature_version='s3v4',
+                retries={
+                    'max_attempts': 3,
+                    'mode': 'standard'
+                }
+            )
+            
+            # 初始化S3客户端
+            self.s3_client = boto3.client(
+                's3',
+                endpoint_url=self.s3_endpoint_url,
+                aws_access_key_id=self.s3_access_key,
+                aws_secret_access_key=self.s3_secret_key,
+                config=s3_config
+            )
+            
+            # 检查桶是否存在
+            self.s3_client.head_bucket(Bucket=self.s3_bucket_name)
+            logger.info(f"S3客户端初始化成功，桶: {self.s3_bucket_name}")
+        except Exception as e:
+            logger.error(f"S3客户端初始化失败: {e}")
+            self.s3_client = None
+            self.remote_enabled = False
+    
+    def _start_scheduled_sync(self):
+        """启动定时同步任务"""
+        if not self.remote_enabled or not self.sync_cron:
+            return
+        
+        try:
+            from apscheduler.schedulers.background import BackgroundScheduler
+            from apscheduler.triggers.cron import CronTrigger
+            
+            # 创建调度器
+            self.scheduler = BackgroundScheduler()
+            
+            # 添加定时任务
+            self.scheduler.add_job(
+                self.sync_from_remote,
+                trigger=CronTrigger.from_crontab(self.sync_cron),
+                id='remote_sync_job',
+                name='Remote Storage Sync',
+                replace_existing=True
+            )
+            
+            # 启动调度器
+            self.scheduler.start()
+            logger.info(f"定时同步任务已启动，Cron表达式: {self.sync_cron}")
+        except Exception as e:
+            logger.error(f"启动定时同步任务失败: {e}")
     
     def _load_data(self):
         """加载数据"""
@@ -57,8 +152,192 @@ class StorageManager:
         try:
             with open(self.db_file, 'w', encoding='utf-8') as f:
                 json.dump(self.data, f, ensure_ascii=False, indent=2)
+            
+            # 如果启用了远程存储，将数据文件同步到S3
+            if self.remote_enabled and self.s3_client:
+                self._upload_to_s3(self.db_file, self._get_s3_key(self.db_file))
         except Exception as e:
             logger.error(f"保存存储数据失败: {e}")
+    
+    def _get_s3_key(self, file_path: str) -> str:
+        """获取S3存储的键名"""
+        relative_path = os.path.relpath(file_path, os.getcwd())
+        key_parts = []
+        if self.s3_path_prefix:
+            key_parts.append(self.s3_path_prefix)
+        key_parts.append(relative_path.replace('\\', '/'))
+        return '/'.join(key_parts)
+    
+    def _upload_to_s3(self, file_path: str, s3_key: str) -> bool:
+        """上传文件到S3存储"""
+        if not self.s3_client or not os.path.exists(file_path):
+            return False
+        
+        try:
+            self.s3_client.upload_file(
+                Filename=file_path,
+                Bucket=self.s3_bucket_name,
+                Key=s3_key
+            )
+            logger.info(f"文件上传到S3成功: {s3_key}")
+            return True
+        except Exception as e:
+            logger.error(f"文件上传到S3失败: {s3_key}, 错误: {e}")
+            return False
+    
+    def _download_from_s3(self, s3_key: str, file_path: str) -> bool:
+        """从S3存储下载文件"""
+        if not self.s3_client:
+            return False
+        
+        try:
+            # 确保目录存在
+            os.makedirs(os.path.dirname(file_path), exist_ok=True)
+            
+            self.s3_client.download_file(
+                Bucket=self.s3_bucket_name,
+                Key=s3_key,
+                Filename=file_path
+            )
+            logger.info(f"从S3下载文件成功: {s3_key} -> {file_path}")
+            return True
+        except Exception as e:
+            logger.error(f"从S3下载文件失败: {s3_key}, 错误: {e}")
+            return False
+    
+    def _delete_from_s3(self, s3_key: str) -> bool:
+        """从S3存储删除文件"""
+        if not self.s3_client:
+            return False
+        
+        try:
+            self.s3_client.delete_object(
+                Bucket=self.s3_bucket_name,
+                Key=s3_key
+            )
+            logger.info(f"从S3删除文件成功: {s3_key}")
+            return True
+        except Exception as e:
+            logger.error(f"从S3删除文件失败: {s3_key}, 错误: {e}")
+            return False
+    
+    def _list_s3_objects(self, prefix: str = '') -> List[str]:
+        """列出S3存储中的对象"""
+        if not self.s3_client:
+            return []
+        
+        try:
+            response = self.s3_client.list_objects_v2(
+                Bucket=self.s3_bucket_name,
+                Prefix=prefix
+            )
+            
+            objects = []
+            if 'Contents' in response:
+                objects = [obj['Key'] for obj in response['Contents']]
+            
+            logger.info(f"从S3列出对象成功，找到 {len(objects)} 个对象")
+            return objects
+        except Exception as e:
+            logger.error(f"从S3列出对象失败: {e}")
+            return []
+    
+    def _get_s3_object_info(self, s3_key: str) -> Optional[Dict[str, Any]]:
+        """获取S3对象的元信息"""
+        if not self.s3_client:
+            return None
+        
+        try:
+            response = self.s3_client.head_object(
+                Bucket=self.s3_bucket_name,
+                Key=s3_key
+            )
+            
+            return {
+                'last_modified': response['LastModified'],
+                'content_length': response['ContentLength'],
+                'content_type': response.get('ContentType', '')
+            }
+        except Exception as e:
+            logger.error(f"获取S3对象信息失败: {s3_key}, 错误: {e}")
+            return None
+    
+    def sync_from_remote(self) -> Dict[str, Any]:
+        """从远程S3存储同步文件到本地"""
+        if not self.remote_enabled or not self.s3_client:
+            return {'status': 'error', 'message': '远程存储未启用'}
+        
+        try:
+            # 列出S3中的对象
+            s3_objects = self._list_s3_objects(self.s3_path_prefix)
+            
+            # 过滤出数据文件
+            data_files = [obj for obj in s3_objects if obj.endswith('storage.db')]
+            
+            sync_count = 0
+            override_count = 0
+            
+            for s3_key in data_files:
+                # 计算本地文件路径
+                relative_key = s3_key.replace(self.s3_path_prefix, '') if self.s3_path_prefix else s3_key
+                local_file_path = os.path.join(os.getcwd(), relative_key.lstrip('/'))
+                
+                # 检查本地文件是否存在
+                if os.path.exists(local_file_path):
+                    if self.sync_override:
+                        # 获取文件的修改时间
+                        local_mtime = datetime.fromtimestamp(os.path.getmtime(local_file_path))
+                        s3_obj_info = self._get_s3_object_info(s3_key)
+                        
+                        if s3_obj_info and s3_obj_info['last_modified'] > local_mtime:
+                            # S3文件更新，覆盖本地文件
+                            if self._download_from_s3(s3_key, local_file_path):
+                                sync_count += 1
+                                override_count += 1
+                    else:
+                        logger.info(f"本地文件已存在，跳过同步: {local_file_path}")
+                else:
+                    # 本地文件不存在，下载
+                    if self._download_from_s3(s3_key, local_file_path):
+                        sync_count += 1
+            
+            # 重新加载数据
+            self._load_data()
+            
+            return {
+                'status': 'success',
+                'message': f'同步完成',
+                'sync_count': sync_count,
+                'override_count': override_count,
+                'total_objects': len(s3_objects)
+            }
+        except Exception as e:
+            logger.error(f"从远程同步文件失败: {e}")
+            return {'status': 'error', 'message': str(e)}
+    
+    def sync_to_remote(self) -> Dict[str, Any]:
+        """将本地文件同步到远程S3存储"""
+        if not self.remote_enabled or not self.s3_client:
+            return {'status': 'error', 'message': '远程存储未启用'}
+        
+        try:
+            # 同步数据文件
+            if os.path.exists(self.db_file):
+                s3_key = self._get_s3_key(self.db_file)
+                if self._upload_to_s3(self.db_file, s3_key):
+                    return {
+                        'status': 'success',
+                        'message': '同步到远程成功',
+                        'sync_count': 1
+                    }
+            
+            return {
+                'status': 'error',
+                'message': '同步到远程失败: 数据文件不存在'
+            }
+        except Exception as e:
+            logger.error(f"同步到远程失败: {e}")
+            return {'status': 'error', 'message': str(e)}
     
     def save_media(self, media_info: Dict[str, Any]):
         """
