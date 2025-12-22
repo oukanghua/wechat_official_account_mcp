@@ -388,13 +388,14 @@ async def wechat_publish(action: str = None, media_id: str = None, publish_id: s
     return await handle_wechat_tool("wechat_publish", arguments)
 
 @mcp.tool()
-async def static_page(action: str = None, html_content: str = None, filename: str = None) -> str:
+async def static_page(action: str = None, html_content: str = None, filename: str = None, type: str = None) -> str:
     """静态网页管理工具，用于生成和管理静态HTML网页
 
     Args:
         action: 操作类型 (generate, info, list, delete)
         html_content: HTML网页内容（generate操作时必需）
         filename: 文件名（info、delete操作时必需，可选的自定义文件名）
+        type: 文件类型 (html, other)，默认html
         
     Returns:
         操作结果文本
@@ -406,6 +407,10 @@ async def static_page(action: str = None, html_content: str = None, filename: st
         
         >>> # 使用自定义文件名生成静态网页
         >>> await static_page(action="generate", html_content=html_content, filename="my_page")
+        
+        >>> # 生成其他类型文件
+        >>> file_content = "some content"
+        >>> await static_page(action="generate", html_content=file_content, filename="test.txt", type="other")
         
         >>> # 获取文件信息
         >>> await static_page(action="info", filename="abc123.html")
@@ -423,6 +428,8 @@ async def static_page(action: str = None, html_content: str = None, filename: st
         arguments['htmlContent'] = html_content
     if filename:
         arguments['filename'] = filename
+    if type:
+        arguments['type'] = type
     return await handle_wechat_tool("static_page", arguments)
 
 @mcp.tool()

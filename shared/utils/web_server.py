@@ -361,17 +361,35 @@ class StaticPageServer:
             elif path == '/api/config' or path == '/chat/api/config':
                 # 配置API（支持直接访问和chat下访问）
                 return self._handle_config_api()
-            elif path == '/favicon.ico':
-                # 网站图标
-                return self._handle_favicon()
             elif path == '/wechat/reply':
                 # 微信服务器验证
                 return self._handle_wechat_verify()
             elif path.startswith('/proxy/'):
                 # 反向代理请求
                 return self._handle_proxy_request(path)
-            else:
-                return "Page not found", 404
+            elif path != '/':
+                # 处理根目录文件访问：http://host/filename.x 或 http://host/contextPath/filename.x
+                # 获取文件名（去掉开头的/）
+                filename = path[1:]
+                if filename:
+                    # 检查data/files目录下是否存在该文件
+                    # 使用绝对路径确保正确访问
+                    files_dir = Path(__file__).parent.parent.parent / "data" / "files"
+                    file_path = files_dir / filename
+                    if file_path.exists() and file_path.is_file():
+                        # 设置内容类型
+                        from mimetypes import guess_type
+                        content_type, _ = guess_type(filename)
+                        if not content_type:
+                            content_type = 'application/octet-stream'
+                        
+                        # 读取文件内容
+                        with open(file_path, 'rb') as f:
+                            content = f.read()
+                        
+                        return content, 200, {'Content-Type': content_type}
+            
+            return "Page not found", 404
                 
         except Exception as e:
             logger.error(f"处理GET请求失败: {e}")
@@ -579,25 +597,6 @@ class StaticPageServer:
         except Exception as e:
             logger.error(f"处理配置API失败: {e}")
             return json.dumps({'error': str(e)}), 500, {'Content-Type': 'application/json'}
-    
-    def _handle_favicon(self):
-        """处理favicon请求，读取项目根目录下的favicon.ico文件"""
-        try:
-            # 构建favicon.ico文件路径（项目根目录）
-            favicon_path = Path(__file__).parent.parent.parent / "favicon.ico"
-            
-            if favicon_path.exists() and favicon_path.is_file():
-                # 读取favicon文件内容
-                with open(favicon_path, 'rb') as f:
-                    favicon_content = f.read()
-                
-                return favicon_content, 200, {'Content-Type': 'image/x-icon'}
-            else:
-                # 如果文件不存在，返回空响应
-                return "", 200, {'Content-Type': 'image/x-icon'}
-        except Exception as e:
-            logger.error(f"处理favicon请求失败: {e}")
-            return "", 200, {'Content-Type': 'image/x-icon'}
     
     def _handle_proxy_request(self, path):
         """处理反向代理请求"""

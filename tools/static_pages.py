@@ -145,13 +145,14 @@ class StaticPageManager:
         
         return filename
     
-    def generate_static_page(self, html_content: str, custom_filename: Optional[str] = None) -> Dict[str, Any]:
+    def generate_static_page(self, html_content: str, custom_filename: Optional[str] = None, type: str = 'html') -> Dict[str, Any]:
         """
         生成静态网页
         
         Args:
             html_content: HTML内容
             custom_filename: 自定义文件名（可选）
+            type: 文件类型 (html, other)，默认html
             
         Returns:
             生成结果字典，包含 success, filename, filepath, created_at, file_size 等字段
@@ -159,46 +160,97 @@ class StaticPageManager:
         try:
             # 验证HTML内容
             if not html_content.strip():
-                return {'success': False, 'error': 'HTML内容不能为空'}
+                return {'success': False, 'error': '内容不能为空'}
             
-            # 生成文件名
-            if custom_filename:
-                filename_base = self._validate_filename(custom_filename)
-                if not filename_base:
-                    return {'success': False, 'error': f'无效的文件名: {custom_filename}'}
-                filename = f"{filename_base}.html"
-            else:
-                filename = _generate_random_filename()  # 已包含.html
-            
-            # 构建文件路径
-            file_path = self.storage_dir / filename
-            
-            # 检查文件是否已存在
-            if file_path.exists():
+            # 根据文件类型确定存储目录
+            if type == 'other':
+                # other类型：使用data/files目录，保留原扩展名
+                storage_dir = Path("data/files")
+                storage_dir.mkdir(parents=True, exist_ok=True)
+                
+                # 生成文件名
                 if custom_filename:
-                    return {'success': False, 'error': f'文件已存在: {filename_base}'}
+                    # 直接使用自定义文件名（包含扩展名）
+                    filename = custom_filename
                 else:
-                    # 随机文件名冲突，生成新的
-                    while file_path.exists():
-                        filename = _generate_random_filename()
-                        file_path = self.storage_dir / filename
-            
-            # 保存HTML文件
-            with open(file_path, 'w', encoding='utf-8') as f:
-                f.write(html_content)
-            
-            # 获取文件大小
-            file_size = file_path.stat().st_size
-            
-            # 创建元数据
-            created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            page_info = {
-                'filename': filename,
-                'filepath': str(file_path),
-                'created_at': created_at,
-                'file_size': file_size,
-                'content_type': 'text/html'
-            }
+                    # 生成随机文件名，不强制.html扩展名
+                    unique_id = str(uuid.uuid4()).replace('-', '')[:8]
+                    filename = f"{unique_id}"
+                
+                # 构建文件路径
+                file_path = storage_dir / filename
+                
+                # 检查文件是否已存在
+                if file_path.exists():
+                    if custom_filename:
+                        return {'success': False, 'error': f'文件已存在: {filename}'}
+                    else:
+                        # 随机文件名冲突，生成新的
+                        while file_path.exists():
+                            unique_id = str(uuid.uuid4()).replace('-', '')[:8]
+                            filename = f"{unique_id}"
+                            file_path = storage_dir / filename
+                
+                # 保存文件（使用二进制模式，适应各种文件类型）
+                with open(file_path, 'wb') as f:
+                    # 如果是字符串，编码为UTF-8
+                    if isinstance(html_content, str):
+                        f.write(html_content.encode('utf-8'))
+                    else:
+                        f.write(html_content)
+                
+                # 获取文件大小
+                file_size = file_path.stat().st_size
+                
+                # 创建元数据
+                created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                page_info = {
+                    'filename': filename,
+                    'filepath': str(file_path),
+                    'created_at': created_at,
+                    'file_size': file_size,
+                    'content_type': 'application/octet-stream'
+                }
+            else:
+                # 默认html类型：使用原有逻辑
+                # 生成文件名
+                if custom_filename:
+                    filename_base = self._validate_filename(custom_filename)
+                    if not filename_base:
+                        return {'success': False, 'error': f'无效的文件名: {custom_filename}'}
+                    filename = f"{filename_base}.html"
+                else:
+                    filename = _generate_random_filename()  # 已包含.html
+                
+                # 构建文件路径
+                file_path = self.storage_dir / filename
+                
+                # 检查文件是否已存在
+                if file_path.exists():
+                    if custom_filename:
+                        return {'success': False, 'error': f'文件已存在: {filename_base}'}
+                    else:
+                        # 随机文件名冲突，生成新的
+                        while file_path.exists():
+                            filename = _generate_random_filename()
+                            file_path = self.storage_dir / filename
+                
+                # 保存HTML文件
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    f.write(html_content)
+                
+                # 获取文件大小
+                file_size = file_path.stat().st_size
+                
+                # 创建元数据
+                created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                page_info = {
+                    'filename': filename,
+                    'filepath': str(file_path),
+                    'created_at': created_at,
+                    'file_size': file_size,
+                    'content_type': 'text/html'
+                }
             
             # 保存元数据（本地文件）
             self.metadata[filename] = page_info
@@ -250,8 +302,8 @@ class StaticPageManager:
                 return None
         
         # 检查文件是否仍然存在
-        # 直接使用storage_dir和文件名拼接，确保路径正确
-        file_path = self.storage_dir / filename
+        # 直接使用元数据中的filepath，因为文件可能存储在不同目录
+        file_path = Path(page_info["filepath"])
         
         if file_path.exists():
             page_info["exists"] = True
@@ -451,21 +503,27 @@ def handle_static_page_tool(arguments: dict, static_page_manager: StaticPageMana
         if action == 'generate':
             html_content = arguments.get('htmlContent', '')
             custom_filename = arguments.get('filename')
+            file_type = arguments.get('type', 'html')
             
-            result = static_page_manager.generate_static_page(html_content, custom_filename)
+            result = static_page_manager.generate_static_page(html_content, custom_filename, file_type)
             
             if result['success']:
                 page_url_info = ""
                 if result.get('page_url'):
-                    page_url_info = f"网页URL: {result['page_url']}\n"
+                    if file_type == 'other':
+                        # other类型文件直接通过根目录访问
+                        page_url_info = f"文件URL: http://localhost:{http_server.get_port()}/{result['filename']}\n" if (http_server and http_server.is_running) else ""
+                    else:
+                        page_url_info = f"网页URL: {result['page_url']}\n"
                 
                 return (f"静态网页生成成功！\n"
                        f"文件名: {result['filename']}\n"
                        f"文件路径: {result['filepath']}\n"
                        f"创建时间: {result['created_at']}\n"
                        f"文件大小: {result['file_size']} 字节\n"
+                       f"文件类型: {file_type}\n"
                        f"{page_url_info}\n"
-                       f"可通过以下URL访问: {result.get('page_url', '服务器未启动')}")
+                       f"可通过以下URL访问: {result.get('page_url', '服务器未启动') if file_type != 'other' else f'http://localhost:{http_server.get_port()}/{result["filename"]}' if (http_server and http_server.is_running) else '服务器未启动'}")
             else:
                 return f"生成失败: {result['error']}"
         
