@@ -268,25 +268,34 @@ class StorageManager:
             return {'status': 'error', 'message': '远程存储未启用'}
         
         try:
-            # 列出S3中的对象
+            # 列出S3中的所有对象
             s3_objects = self._list_s3_objects(self.s3_path_prefix)
-            
-            # 过滤出数据文件
-            data_files = [obj for obj in s3_objects if obj.endswith('storage.db')]
             
             sync_count = 0
             override_count = 0
             
-            for s3_key in data_files:
+            for s3_key in s3_objects:
+                # 过滤掉不需要同步的对象（如隐藏文件）
+                if s3_key.endswith('/'):  # 跳过目录
+                    continue
+                if s3_key.startswith('.'):  # 跳过隐藏文件
+                    continue
+                
                 # 计算本地文件路径
                 relative_key = s3_key.replace(self.s3_path_prefix, '') if self.s3_path_prefix else s3_key
                 local_file_path = os.path.join(os.getcwd(), relative_key.lstrip('/'))
+                
+                # 确保目标目录存在
+                os.makedirs(os.path.dirname(local_file_path), exist_ok=True)
                 
                 # 检查本地文件是否存在
                 if os.path.exists(local_file_path):
                     if self.sync_override:
                         # 获取文件的修改时间
                         local_mtime = datetime.fromtimestamp(os.path.getmtime(local_file_path))
+                        # 将local_mtime转换为带时区的datetime对象（UTC）
+                        from datetime import timezone
+                        local_mtime = local_mtime.replace(tzinfo=timezone.utc)
                         s3_obj_info = self._get_s3_object_info(s3_key)
                         
                         if s3_obj_info and s3_obj_info['last_modified'] > local_mtime:
@@ -294,12 +303,14 @@ class StorageManager:
                             if self._download_from_s3(s3_key, local_file_path):
                                 sync_count += 1
                                 override_count += 1
+                                logger.info(f"同步并覆盖本地文件: {local_file_path}")
                     else:
                         logger.info(f"本地文件已存在，跳过同步: {local_file_path}")
                 else:
                     # 本地文件不存在，下载
                     if self._download_from_s3(s3_key, local_file_path):
                         sync_count += 1
+                        logger.info(f"从S3下载新文件: {local_file_path}")
             
             # 重新加载数据
             self._load_data()
@@ -321,19 +332,32 @@ class StorageManager:
             return {'status': 'error', 'message': '远程存储未启用'}
         
         try:
-            # 同步数据文件
-            if os.path.exists(self.db_file):
-                s3_key = self._get_s3_key(self.db_file)
-                if self._upload_to_s3(self.db_file, s3_key):
-                    return {
-                        'status': 'success',
-                        'message': '同步到远程成功',
-                        'sync_count': 1
-                    }
+            sync_count = 0
+            
+            # 同步整个data目录
+            data_dir = os.path.join(os.getcwd(), 'data')
+            
+            # 遍历data目录下的所有文件
+            for root, dirs, files in os.walk(data_dir):
+                for file in files:
+                    # 跳过隐藏文件
+                    if file.startswith('.'):
+                        continue
+                    
+                    # 构建本地文件路径
+                    local_file_path = os.path.join(root, file)
+                    
+                    # 生成S3键名
+                    s3_key = self._get_s3_key(local_file_path)
+                    
+                    # 上传文件到S3
+                    if self._upload_to_s3(local_file_path, s3_key):
+                        sync_count += 1
             
             return {
-                'status': 'error',
-                'message': '同步到远程失败: 数据文件不存在'
+                'status': 'success',
+                'message': '同步到远程成功',
+                'sync_count': sync_count
             }
         except Exception as e:
             logger.error(f"同步到远程失败: {e}")

@@ -310,14 +310,17 @@ class StaticPageServer:
             # 始终从request.path获取完整请求路径
             full_path = request.path
             
-            # 处理contextPath：如果设置了contextPath，则请求必须包含它
+            # 处理contextPath
             if self.context_path:
-                if not full_path.startswith(self.context_path):
-                    return "Page not found", 404
-                # 移除contextPath前缀
-                path = full_path[len(self.context_path):]
-                if not path:
-                    path = '/'
+                if full_path.startswith(self.context_path):
+                    # 如果请求包含contextPath，则移除前缀
+                    path = full_path[len(self.context_path):]
+                    if not path:
+                        path = '/'
+                else:
+                    # 如果请求不包含contextPath，直接使用完整路径
+                    # 允许直接访问根路径文件，如 http://host/cdn_verify.txt
+                    path = full_path
             else:
                 # 没有contextPath时，直接使用完整路径
                 path = full_path
@@ -330,17 +333,15 @@ class StaticPageServer:
             else:
                 return "Method not allowed", 405
         
-        # 注册路由：使用带contextPath的路由规则
+        # 注册路由：同时支持带contextPath和不带contextPath的请求
+        # 1. 带contextPath前缀的路由
         if self.context_path:
-            # 如果设置了contextPath，则只注册带contextPath前缀的路由
-            # 注意：Flask的路由会自动处理contextPath，我们只需要确保请求包含它
-            # 我们不需要为每个路由单独添加contextPath前缀，因为handle_all_requests会处理
             self.app.add_url_rule(f'{self.context_path}/', methods=['GET', 'POST'], view_func=handle_all_requests)
             self.app.add_url_rule(f'{self.context_path}/<path:path>', methods=['GET', 'POST'], view_func=handle_all_requests)
-        else:
-            # 如果没有设置contextPath，则注册默认路由
-            self.app.add_url_rule('/', methods=['GET', 'POST'], view_func=handle_all_requests)
-            self.app.add_url_rule('/<path:path>', methods=['GET', 'POST'], view_func=handle_all_requests)
+        
+        # 2. 不带contextPath前缀的路由（支持直接访问根路径文件）
+        self.app.add_url_rule('/', methods=['GET', 'POST'], view_func=handle_all_requests)
+        self.app.add_url_rule('/<path:path>', methods=['GET', 'POST'], view_func=handle_all_requests)
     
     def _handle_get_request(self, path):
         """处理GET请求"""
