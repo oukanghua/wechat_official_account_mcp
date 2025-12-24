@@ -1211,8 +1211,19 @@ class IntegratedStaticPageServer(StaticPageServer):
             from pathlib import Path
             
             # 默认分页参数
-            page = 1
+            page_num = 1
             per_page = 10
+            
+            # 从请求中获取page参数
+            page_param = request.args.get('page')
+            if page_param:
+                try:
+                    page_num = int(page_param)
+                    # 确保page_num不小于1
+                    page_num = max(1, page_num)
+                except (ValueError, TypeError):
+                    # 如果page参数不是有效数字，使用默认值
+                    page_num = 1
             
             # 获取页面列表
             pages = []
@@ -1220,14 +1231,17 @@ class IntegratedStaticPageServer(StaticPageServer):
                 pages_info = self.static_page_manager.list_pages()
                 pages = pages_info.get('pages', [])
             
-            # 按创建时间倒序排序
-            pages.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+            # 按创建时间倒序排序，确保created_at始终为字符串，处理None值
+            pages.sort(key=lambda x: str(x.get('created_at', '')), reverse=True)
             
             # 计算总页数
             total_pages = (len(pages) + per_page - 1) // per_page
             
+            # 确保page_num不超过总页数
+            page_num = min(page_num, total_pages)
+            
             # 获取当前页的数据
-            start = (page - 1) * per_page
+            start = (page_num - 1) * per_page
             end = start + per_page
             current_pages = pages[start:end]
             
@@ -1245,14 +1259,36 @@ class IntegratedStaticPageServer(StaticPageServer):
                 
                 return f"{size:.2f} {units[unit_index]}"
             
-            # 计算总文件大小 - 使用 current_size 优先，如果为0则使用 file_size
-            total_file_size = sum(page.get('current_size', page.get('file_size', 0)) for page in pages)
+            # 计算总文件大小 - 使用 current_size 优先，如果为0则使用 file_size，确保数值类型
+            total_file_size = 0
+            for page in pages:
+                file_size_val = page.get('current_size', page.get('file_size', 0))
+                # 确保file_size_val是数字
+                if isinstance(file_size_val, (int, float)):
+                    total_file_size += file_size_val
+                else:
+                    try:
+                        # 尝试转换为数字
+                        total_file_size += float(file_size_val)
+                    except (ValueError, TypeError):
+                        # 无法转换，跳过此文件的大小
+                        pass
             total_size_formatted = format_file_size(total_file_size)
             
             # 格式化每个页面的文件大小 - 使用 current_size 优先，如果为0则使用 file_size
-            for page in current_pages:
-                file_size = page.get('current_size', page.get('file_size', 0))
-                page['file_size_formatted'] = format_file_size(file_size)
+            for page_item in current_pages:
+                file_size = page_item.get('current_size', page_item.get('file_size', 0))
+                # 确保file_size是数字
+                if isinstance(file_size, (int, float)):
+                    pass  # 已经是数字，直接使用
+                else:
+                    try:
+                        # 尝试转换为数字
+                        file_size = float(file_size)
+                    except (ValueError, TypeError):
+                        # 无法转换，使用0
+                        file_size = 0
+                page_item['file_size_formatted'] = format_file_size(file_size)
             
             # 生成分页HTML
             pagination_html = ""
@@ -1260,21 +1296,21 @@ class IntegratedStaticPageServer(StaticPageServer):
                 pagination_html = "<div class='pagination'>"
                 
                 # 上一页
-                if page > 1:
-                    pagination_html += f"<a href='{self.context_path}/static-pages/?page={page-1}' class='page-btn prev'>上一页</a>"
+                if page_num > 1:
+                    pagination_html += f"<a href='{self.context_path}/static-pages/?page={page_num-1}' class='page-btn prev'>上一页</a>"
                 else:
                     pagination_html += "<span class='page-btn prev disabled'>上一页</span>"
                 
                 # 页码按钮
                 for i in range(1, total_pages + 1):
-                    if i == page:
+                    if i == page_num:
                         pagination_html += f"<span class='page-btn current'>{i}</span>"
                     else:
                         pagination_html += f"<a href='{self.context_path}/static-pages/?page={i}' class='page-btn'>{i}</a>"
                 
                 # 下一页
-                if page < total_pages:
-                    pagination_html += f"<a href='{self.context_path}/static-pages/?page={page+1}' class='page-btn next'>下一页</a>"
+                if page_num < total_pages:
+                    pagination_html += f"<a href='{self.context_path}/static-pages/?page={page_num+1}' class='page-btn next'>下一页</a>"
                 else:
                     pagination_html += "<span class='page-btn next disabled'>下一页</span>"
                 
