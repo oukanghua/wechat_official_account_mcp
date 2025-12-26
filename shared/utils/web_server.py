@@ -243,7 +243,7 @@ def my_render_template(template_path: str, variables: Dict[str, Any]) -> str:
 class StaticPageServer:
     """Web 服务器 - Flask版本"""
     
-    def __init__(self, pages_dir: str = "data/static_pages", port: int = 3005):
+    def __init__(self, pages_dir: str = "data/static_pages", port: int = 3004):
         """
         初始化Flask服务器
         
@@ -416,9 +416,6 @@ class StaticPageServer:
             elif path == '/wechat/reply':
                 # 微信消息接收
                 return self._handle_wechat_message()
-            elif path == '/api/test-md5':
-                # MD5测试API
-                return self._handle_test_md5()
             else:
                 return "Method not allowed", 405
                 
