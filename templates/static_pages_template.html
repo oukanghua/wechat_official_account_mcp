@@ -3,11 +3,126 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://cdn.bootcdn.net/ajax/libs/blueimp-md5/2.19.0/js/md5.min.js"></script>
     <title>静态网页列表</title>
     <style>
         /* 基本样式 */
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; padding: 20px; }
+        
+        /* 模态框样式 */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+        }
+        
+        .modal-content {
+            background-color: white;
+            margin: 15% auto;
+            padding: 20px;
+            border-radius: 12px;
+            width: 90%;
+            max-width: 400px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+        }
+        
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        
+        .modal-header h3 {
+            color: #2c3e50;
+            margin: 0;
+        }
+        
+        .close {
+            color: #aaa;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        
+        .close:hover {
+            color: #000;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #2c3e50;
+            font-weight: 500;
+        }
+        
+        .form-group input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 16px;
+        }
+        
+        .password-input-container {
+            position: relative;
+        }
+        
+        .password-toggle {
+            position: absolute;
+            right: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: none;
+            border: none;
+            cursor: pointer;
+            color: #666;
+        }
+        
+        .modal-footer {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+        }
+        
+        /* 密码验证状态 */
+        .password-status {
+            margin-top: 10px;
+            padding: 8px;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            display: none;
+        }
+        
+        .password-status.success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+            display: block;
+        }
+        
+        .password-status.error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+            display: block;
+        }
+        
+        /* 管理按钮容器 */
+        .admin-buttons {
+            display: flex;
+            gap: 10px;
+        }
         
         /* 容器 */
         .container { max-width: 1200px; margin: 0 auto; }
@@ -86,6 +201,41 @@
             .page-meta { flex-direction: column; gap: 5px; }
             .actions-bar { flex-direction: column; align-items: flex-start; gap: 10px; }
         }
+        
+        /* 手机端优化 - 按钮只显示图标 */
+        @media (max-width: 600px) {
+            .admin-buttons {
+                display: flex;
+                gap: 5px;
+            }
+            
+            .btn {
+                padding: 8px;
+                width: 36px;
+                height: 36px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 0;
+                line-height: 0;
+                text-indent: -9999px;
+                overflow: hidden;
+            }
+            
+            .btn::before {
+                text-indent: 0;
+                font-size: 16px;
+                line-height: 1;
+            }
+            
+            .btn-primary::before {
+                content: '🗘';
+            }
+            
+            .btn-secondary::before {
+                content: '⚙️';
+            }
+        }
     </style>
 </head>
 <body>
@@ -114,9 +264,34 @@
             <!-- 操作栏 -->
             <div class="header-right">
                 <div class="actions-bar">
-                    <div>
-                        <button class="btn btn-primary" onclick="refreshFileList()">🔄 刷新文件列表</button>
+                    <div class="admin-buttons">
+                        <button class="btn btn-primary" onclick="refreshFileList()">🗘 刷新</button>
+                        <button class="btn btn-secondary" onclick="openPasswordModal()">⚙️ 管理</button>
                     </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 密码验证模态框 -->
+        <div id="passwordModal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>🔐 管理员密码验证</h3>
+                    <span class="close" onclick="closePasswordModal()">&times;</span>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label for="adminPassword">请输入管理密码：</label>
+                        <div class="password-input-container">
+                            <input type="password" id="adminPassword" placeholder="输入管理密码">
+                            <button class="password-toggle" onclick="togglePasswordVisibility()" title="显示/隐藏密码">👁️</button>
+                        </div>
+                    </div>
+                    <div id="passwordStatus" class="password-status"></div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" onclick="closePasswordModal()">取消</button>
+                    <button class="btn btn-primary" onclick="verifyPassword()">验证</button>
                 </div>
             </div>
         </div>
@@ -154,22 +329,150 @@
     </div>
     
     <script>
+        // 密码验证状态
+        let passwordValidated = false;
+        
+        // 生成随机盐
+        function generateSalt() {
+            const charset = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+            let salt = '';
+            for (let i = 0; i < 16; i++) {
+                salt += charset.charAt(Math.floor(Math.random() * charset.length));
+            }
+            return salt;
+        }
+        
         // 刷新文件列表
         function refreshFileList() {
             showMessage('正在刷新文件列表...', 'success');
             window.location.reload();
         }
         
+        // 打开密码验证模态框
+        function openPasswordModal() {
+            document.getElementById('passwordModal').style.display = 'block';
+            document.getElementById('adminPassword').focus();
+        }
+        
+        // 关闭密码验证模态框
+        function closePasswordModal() {
+            document.getElementById('passwordModal').style.display = 'none';
+            document.getElementById('adminPassword').value = '';
+            document.getElementById('passwordStatus').style.display = 'none';
+        }
+        
+        // 点击模态框外部关闭
+        window.onclick = function(event) {
+            const modal = document.getElementById('passwordModal');
+            if (event.target == modal) {
+                closePasswordModal();
+            }
+        }
+        
+        // 密码可见性切换
+        function togglePasswordVisibility() {
+            const input = document.getElementById('adminPassword');
+            const button = input.nextElementSibling;
+            
+            if (input.type === 'password') {
+                input.type = 'text';
+                button.textContent = '🙈';
+            } else {
+                input.type = 'password';
+                button.textContent = '👁️';
+            }
+        }
+        
+        // 验证管理密码
+        async function verifyPassword() {
+            const passwordInput = document.getElementById('adminPassword');
+            const password = passwordInput.value.trim();
+            const statusDiv = document.getElementById('passwordStatus');
+            
+            if (!password) {
+                statusDiv.textContent = '请输入管理密码';
+                statusDiv.className = 'password-status error';
+                return;
+            }
+            
+            try {
+                // 生成盐并使用 md5+salt 加密密码
+                const salt = generateSalt();
+                const encryptedPassword = md5(password + salt);
+                
+                const response = await fetch('{{ context_path }}/api/validate-password', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ password: `${encryptedPassword}:${salt}` })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    passwordValidated = true;
+                    statusDiv.textContent = '密码验证成功！';
+                    statusDiv.className = 'password-status success';
+                    
+                    // 关闭模态框
+                    setTimeout(() => {
+                        closePasswordModal();
+                        // 显示所有删除按钮
+                        showDeleteButtons();
+                    }, 1000);
+                } else {
+                    statusDiv.textContent = '管理密码错误，请重试';
+                    statusDiv.className = 'password-status error';
+                    passwordInput.value = '';
+                    passwordInput.focus();
+                }
+            } catch (error) {
+                console.error('密码验证失败:', error);
+                statusDiv.textContent = '密码验证失败，请检查网络连接';
+                statusDiv.className = 'password-status error';
+            }
+        }
+        
+        // 显示删除按钮
+        function showDeleteButtons() {
+            const deleteButtons = document.querySelectorAll('.page-delete');
+            deleteButtons.forEach(button => {
+                button.style.display = 'inline-block';
+            });
+        }
+        
+        // 隐藏删除按钮（初始状态）
+        function hideDeleteButtons() {
+            const deleteButtons = document.querySelectorAll('.page-delete');
+            deleteButtons.forEach(button => {
+                button.style.display = 'none';
+            });
+        }
+        
         // 删除文件
-        function deleteFile(filename) {
+        async function deleteFile(filename) {
+            if (!passwordValidated) {
+                openPasswordModal();
+                return;
+            }
+            
             if (confirm(`确定要删除文件 "${filename}" 吗？此操作不可恢复。`)) {
                 showMessage(`正在删除文件 ${filename}...`, 'success');
+                
+                // 获取密码（从输入框或内存中）
+                const password = document.getElementById('adminPassword').value.trim();
+                
+                // 生成盐并使用 md5+salt 加密密码
+                const salt = generateSalt();
+                const encryptedPassword = md5(password + salt);
                 
                 // 发送删除请求
                 fetch(`{{ context_path }}/api/static-page/delete?filename=${encodeURIComponent(filename)}`, {
                     method: 'POST',
                     headers: {
-                        'Content-Type': 'application/json'
+                        'Content-Type': 'application/json',
+                        'X-Config-Password': `${encryptedPassword}:${salt}`
                     }
                 })
                 .then(response => response.json())
@@ -202,6 +505,12 @@
                 messageDiv.style.display = 'none';
             }, 3000);
         }
+        
+        // 页面加载完成后初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            // 初始隐藏删除按钮
+            hideDeleteButtons();
+        });
     </script>
 </body>
 </html>

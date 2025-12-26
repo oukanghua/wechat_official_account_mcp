@@ -243,7 +243,7 @@ def my_render_template(template_path: str, variables: Dict[str, Any]) -> str:
 class StaticPageServer:
     """Web 服务器 - Flask版本"""
     
-    def __init__(self, pages_dir: str = "data/static_pages", port: int = 3004):
+    def __init__(self, pages_dir: str = "data/static_pages", port: int = 3005):
         """
         初始化Flask服务器
         
@@ -390,6 +390,7 @@ class StaticPageServer:
                         
                         return content, 200, {'Content-Type': content_type}
             
+            # 如果没有匹配到任何路由，返回404
             return "Page not found", 404
                 
         except Exception as e:
@@ -415,6 +416,9 @@ class StaticPageServer:
             elif path == '/wechat/reply':
                 # 微信消息接收
                 return self._handle_wechat_message()
+            elif path == '/api/test-md5':
+                # MD5测试API
+                return self._handle_test_md5()
             else:
                 return "Method not allowed", 405
                 
@@ -549,10 +553,67 @@ class StaticPageServer:
             logger.error(f"处理聊天界面失败: {e}")
             return "<h1>错误</h1><p>无法加载聊天界面</p>", 500
     
+    def _validate_request_password(self):
+        """验证请求中的密码是否正确（支持明文和md5+盐两种方式）
+        
+        Returns:
+            bool: 密码是否正确
+        """
+        try:
+            # 从请求头获取密码
+            password = request.headers.get('X-Config-Password')
+            
+            # 如果请求头中没有，尝试从请求体获取
+            if not password:
+                try:
+                    # 尝试读取原始请求体
+                    raw_data = request.get_data(as_text=True)
+                    
+                    # 尝试解析为JSON，捕获异常并返回空字典
+                    try:
+                        data = request.get_json()
+                    except Exception as e:
+                        data = {}
+                    
+                    password = data.get('password')
+                except Exception as e:
+                    # 尝试从表单数据获取
+                    data = request.form
+                    password = data.get('password')
+            
+            # 从环境变量获取配置密码
+            openai_config_password = os.getenv('OPENAI_CONFIG_PASSWORD')
+            
+            # 验证密码
+            if not openai_config_password:
+                return False
+            
+            # 支持两种验证方式：明文和md5+盐
+            if password == openai_config_password:
+                # 明文验证（向后兼容）
+                return True
+            elif password and ':' in password:
+                # md5+盐验证（格式：encrypted_password:salt）
+                import hashlib
+                encrypted_password, salt = password.split(':', 1)
+                if len(salt) >= 8:
+                    # 使用相同的盐值对环境变量中的密码进行md5加密
+                    expected_password = hashlib.md5(f"{openai_config_password}{salt}".encode('utf-8')).hexdigest()
+                    return encrypted_password == expected_password
+            
+            return False
+        except Exception as e:
+            logger.error(f"验证请求密码失败: {e}")
+            return False
+
     def _handle_config_api(self):
         """处理配置API请求，支持GET获取配置和POST保存配置"""
         try:
             if request.method == 'POST':
+                # 验证密码
+                if not self._validate_request_password():
+                    return json.dumps({'success': False, 'message': 'Invalid password'}), 401, {'Content-Type': 'application/json'}
+                    
                 # 处理配置保存请求
                 data = request.get_json()
                 if not data:
@@ -843,18 +904,11 @@ class StaticPageServer:
     def _handle_validate_password(self):
         """处理密码验证请求"""
         try:
-            # 获取请求数据
-            data = request.get_json()
-            password = data.get('password', '')
-            # 从环境变量获取配置密码
-            openai_config_password = os.getenv('OPENAI_CONFIG_PASSWORD')
-            
-            # 验证密码
-            if openai_config_password and password == openai_config_password:
+            # 直接调用通用密码验证方法
+            if self._validate_request_password():
                 return json.dumps({'success': True, 'message': 'Password validated'}), 200, {'Content-Type': 'application/json'}
             else:
                 return json.dumps({'success': False, 'message': 'Invalid password'}), 401, {'Content-Type': 'application/json'}
-            
         except Exception as e:
             logger.error(f"处理密码验证请求失败: {e}")
             return json.dumps({'error': str(e)}), 500, {'Content-Type': 'application/json'}
@@ -862,6 +916,10 @@ class StaticPageServer:
     def _handle_delete_static_page(self):
         """处理静态页面删除请求"""
         try:
+            # 验证密码
+            if not self._validate_request_password():
+                return json.dumps({'success': False, 'message': 'Invalid password'}), 401, {'Content-Type': 'application/json'}
+            
             # 获取请求参数
             filename = request.args.get('filename')
             
