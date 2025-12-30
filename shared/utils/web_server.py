@@ -413,7 +413,7 @@ class StaticPageServer:
             if path == '/api/chat' or path == '/chat/api/send':
                 # 聊天API（支持直接访问和chat下访问）
                 return self._handle_chat_api()
-            elif path == '/api/config':
+            elif path == '/api/config' or path == '/chat/api/config':
                 # 配置API，由_handle_config_api统一处理GET和POST
                 return self._handle_config_api()
             elif path == '/api/verification-code' or path == '/chat/api/verification-code':
@@ -1248,7 +1248,6 @@ class StaticPageServer:
                     except RuntimeError:
                         loop = asyncio.new_event_loop()
                         asyncio.set_event_loop(loop)
-                    
                     # 从环境变量获取交互模式，优先使用微信专用配置，默认使用block模式
                     interaction_mode = os.getenv('OPENAI_WECHAT_INTERACTION_MODE', 
                                                os.getenv('OPENAI_INTERACTION_MODE', 'block')).strip().lower()
@@ -1282,9 +1281,8 @@ class StaticPageServer:
                                     if len(''.join(collected)) < self.wechat_msg_ai_len_limit:
                                         collected.append(self.wechat_msg_ai_timeout_prompt)
                                 except Exception as e:
-                                    logger.error(f"微信消息AI响应异常: {e}")
+                                    logger.error(f"微信消息AI响应异常: {str(e)}")
                                     collected.append(f"\n\n[响应异常: {str(e)}]")
-                                
                                 return ''.join(collected)
                             return collect_stream()
                         

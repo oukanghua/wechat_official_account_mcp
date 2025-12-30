@@ -330,7 +330,9 @@ class AIService:
             logger.error("AI API调用超时")
             yield "AI服务响应超时，请稍后重试"
         except Exception as e:
-            logger.error(f"流式对话时发生错误: {e}")
+            # 确保异常信息以UTF-8编码处理
+            error_msg = f"流式对话时发生错误: {str(e)}"
+            logger.error(error_msg)
             yield f"对话失败: {str(e)}"
     
     def _load_config_from_file(self):
@@ -459,12 +461,9 @@ def get_ai_service(service_type: str = "web") -> AIService:
     service_key = f"{service_type}_0"
     # 检查是否已存在相同配置的实例
     if service_key not in _ai_service_instances[service_type]:
+        # 对于 wechat 服务类型，不传递参数，让 AIService 构造函数自己从环境变量读取 OPENAI_WECHAT_ 前缀的配置
         _ai_service_instances[service_type][service_key] = AIService(
-            service_type=service_type, 
-            api_url=os.getenv(f'{service_type.upper()}_API_URL'), 
-            api_key=os.getenv(f'{service_type.upper()}_API_KEY'), 
-            model=os.getenv(f'{service_type.upper()}_MODEL'), 
-            system_prompt=os.getenv(f'{service_type.upper()}_SYSTEM_PROMPT')
+            service_type=service_type
         )
     
     return _ai_service_instances[service_type][service_key]

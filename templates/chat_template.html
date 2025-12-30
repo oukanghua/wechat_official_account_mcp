@@ -2140,6 +2140,9 @@
             }
         }
 
+        // 保存验证后的加密密码和盐
+        let validatedPasswordInfo = null;
+        
         // 处理配置表单提交
         async function handleConfigSubmit(e) {
             e.preventDefault();
@@ -2152,10 +2155,14 @@
             };
             
             try {
-                // 获取密码并使用md5+盐加密
-                const password = document.getElementById('configPassword').value.trim();
-                const salt = generateSalt();
-                const md5Password = md5(password + salt);
+                // 使用之前验证保存的密码信息
+                if (!validatedPasswordInfo) {
+                    configStatus.innerHTML = '保存配置失败: 密码未验证';
+                    configStatus.className = 'config-status error';
+                    return;
+                }
+                
+                const [md5Password, salt] = validatedPasswordInfo;
                 
                 const response = await fetch(CONFIG.configEndpoint, {
                     method: 'POST',
@@ -2375,6 +2382,8 @@
                 
                 if (result.success) {
                     passwordValidated = true;
+                    // 保存加密密码和盐信息
+                    validatedPasswordInfo = [encryptedPassword, salt];
                     document.getElementById('passwordSection').style.display = 'none';
                     document.getElementById('configForm').style.display = 'flex';
                     passwordInput.value = ''; // 清除密码输入
@@ -2389,16 +2398,23 @@
             }
         }
 
-        // 修改配置表单提交处理
-        const originalHandleConfigSubmit = handleConfigSubmit;
-        async function handleConfigSubmit(e) {
+        // 修改配置表单提交处理 - 重命名新函数以避免递归调用
+        async function enhancedHandleConfigSubmit(e) {
+            e.preventDefault(); // 阻止默认表单提交行为
+            
             if (!passwordValidated) {
                 alert('请先验证配置密码');
                 return;
             }
             
-            return originalHandleConfigSubmit(e);
+            // 直接调用原始的配置提交处理逻辑
+            return handleConfigSubmit(e);
         }
+        
+        // 移除旧的事件监听器
+        configForm.removeEventListener('submit', handleConfigSubmit);
+        // 添加新的事件监听器
+        configForm.addEventListener('submit', enhancedHandleConfigSubmit);
 
         // 更新验证码状态显示
         function updateVerificationStatus() {
