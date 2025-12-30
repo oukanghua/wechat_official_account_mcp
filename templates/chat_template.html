@@ -1158,10 +1158,142 @@
         .message-action-btn:hover {
             background: rgba(0, 0, 0, 0.2);
         }       
+
+        /* 验证码遮罩层样式 */
+        .verification-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 10000;
+        }
+
+        .verification-modal {
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            max-width: 400px;
+            width: 90%;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            text-align: center;
+        }
+
+        .verification-header h3 {
+            color: #334155;
+            margin-bottom: 20px;
+            font-size: 24px;
+        }
+
+        .verification-content p {
+            color: #64748b;
+            margin-bottom: 15px;
+            font-size: 16px;
+            line-height: 1.5;
+        }
+
+        .verification-content strong {
+            color: #667eea;
+            font-weight: 600;
+        }
+
+        .verification-input-group {
+            margin: 20px 0;
+        }
+
+        .verification-input-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #475569;
+            font-weight: 500;
+        }
+
+        .verification-input-group input {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #e2e8f0;
+            border-radius: 6px;
+            font-size: 16px;
+            text-align: center;
+            letter-spacing: 1px;
+        }
+
+        .verification-input-group input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .verification-buttons {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        .btn-verify {
+            flex: 1;
+            background: #059669;
+            color: white;
+            border: none;
+            padding: 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.3s;
+        }
+
+        .btn-verify:hover {
+            background: #047857;
+        }
+
+        .verification-status {
+            margin-top: 15px;
+            padding: 10px;
+            border-radius: 6px;
+            font-size: 14px;
+            display: none;
+        }
+
+        .verification-status.success {
+            background: #d1fae5;
+            color: #065f46;
+        }
+
+        .verification-status.error {
+            background: #fee2e2;
+            color: #991b1b;
+        }
     </style>
 </head>
 <body>
     <div class="chat-container">
+        <!-- 验证码遮罩层 -->
+        <div id="verificationOverlay" class="verification-overlay" style="display: none;">
+            <div class="verification-modal">
+                <div class="verification-header">
+                    <h3>🔑 验证码验证</h3>
+                </div>
+                <div class="verification-content">
+                    <p>请关注公众号 <strong>{{wechat_official_account}}</strong></p>
+                    <p>并回复"用户验证码"获取验证码</p>
+                    
+                    <div class="verification-input-group">
+                        <label for="verificationCode">验证码</label>
+                        <input type="text" id="verificationCode" placeholder="请输入8位验证码" maxlength="32" />
+                    </div>
+                    
+                    <div class="verification-buttons">
+                        <button type="button" onclick="validateVerificationCode()" class="btn-verify">验证</button>
+                    </div>
+                    
+                    <div id="verificationStatus" class="verification-status"></div>
+                </div>
+            </div>
+        </div>
+        
         <div class="chat-header">
             <div class="status-indicator"></div>
             <h1>🎯 AI析数助手</h1>
@@ -1279,6 +1411,65 @@
         
         // 密码验证状态
         let passwordValidated = false;
+        
+        // 验证码验证状态
+        let verificationValidated = false;
+        
+        // 验证码验证状态存储键
+        const VERIFICATION_STORAGE_KEY = 'chat_verification_validated';
+        const VERIFICATION_EXPIRY_KEY = 'chat_verification_expiry';
+        
+        // 检查浏览器存储中的验证码验证状态
+        function checkStoredVerificationStatus() {
+            try {
+                const isValidated = localStorage.getItem(VERIFICATION_STORAGE_KEY);
+                const expiryTime = localStorage.getItem(VERIFICATION_EXPIRY_KEY);
+                
+                if (isValidated === 'true' && expiryTime) {
+                    const now = new Date().getTime();
+                    const expiry = parseInt(expiryTime);
+                    
+                    if (now < expiry) {
+                        // 验证状态仍然有效
+                        verificationValidated = true;
+                        return true;
+                    } else {
+                        // 已过期，清除存储
+                        clearVerificationStorage();
+                    }
+                }
+            } catch (error) {
+                console.warn('检查存储的验证状态失败:', error);
+            }
+            return false;
+        }
+        
+        // 保存验证码验证状态到浏览器存储
+        function saveVerificationStatus() {
+            try {
+                const now = new Date().getTime();
+                const validDays = 90; // 应该从配置获取，这里暂时硬编码
+                const expiryTime = now + (validDays * 24 * 60 * 60 * 1000); // 90天后过期
+                
+                localStorage.setItem(VERIFICATION_STORAGE_KEY, 'true');
+                localStorage.setItem(VERIFICATION_EXPIRY_KEY, expiryTime.toString());
+                
+                console.log('验证码验证状态已保存到浏览器存储');
+            } catch (error) {
+                console.warn('保存验证状态到浏览器存储失败:', error);
+            }
+        }
+        
+        // 清除验证码验证状态存储
+        function clearVerificationStorage() {
+            try {
+                localStorage.removeItem(VERIFICATION_STORAGE_KEY);
+                localStorage.removeItem(VERIFICATION_EXPIRY_KEY);
+                console.log('已清除浏览器存储的验证状态');
+            } catch (error) {
+                console.warn('清除浏览器存储失败:', error);
+            }
+        }
 
         // DOM 元素
         const chatMessages = document.getElementById('chatMessages');
@@ -1301,6 +1492,17 @@
             
             // 初始化消息按钮
             initMessageButtons();
+            
+            // 页面加载时检查验证码验证状态
+            checkStoredVerificationStatus();
+            
+            // 初始化验证码状态
+            updateVerificationStatus();
+            
+            // 页面加载时检查验证码状态，如果未验证则显示遮罩层
+            if (!verificationValidated) {
+                showVerificationOverlay();
+            }
         });
         
         // 初始化think标签折叠功能
@@ -1551,6 +1753,13 @@
 
         // 发送消息
         async function sendMessage(avoidDuplicate = false, userContent = null) {
+            // 检查验证码状态
+            if (!verificationValidated) {
+                showVerificationOverlay();
+                alert('请先验证验证码才能使用聊天功能');
+                return;
+            }
+            
             // 获取消息内容：如果提供了userContent则使用，否则从输入框获取
             const message = userContent || messageInput.value.trim();
             if (!message || isTyping) return;
@@ -2015,6 +2224,7 @@
                 // 清除本地存储的消息计数和聊天记录
                 localStorage.removeItem('chatMessageCount');
                 localStorage.removeItem('chatHistory');
+                // 保留验证码验证状态存储，只在过期时清理
             }
         }
 
@@ -2142,6 +2352,12 @@
                 return;
             }
             
+            // 验证密码长度（至少8位）
+            if (password.length < 8) {
+                alert('配置密码长度至少8位');
+                return;
+            }
+            
             try {
                 // 生成盐并使用 md5+salt 加密密码
                 const salt = generateSalt();
@@ -2182,6 +2398,102 @@
             }
             
             return originalHandleConfigSubmit(e);
+        }
+
+        // 更新验证码状态显示
+        function updateVerificationStatus() {
+            // 移除原来的配置面板控制逻辑
+            if (verificationValidated) {
+                hideVerificationOverlay();
+            }
+        }
+
+        // 显示验证码遮罩层
+        function showVerificationOverlay() {
+            const overlay = document.getElementById('verificationOverlay');
+            if (overlay) {
+                overlay.style.display = 'flex';
+            }
+        }
+
+        // 隐藏验证码遮罩层
+        function hideVerificationOverlay() {
+            const overlay = document.getElementById('verificationOverlay');
+            if (overlay) {
+                overlay.style.display = 'none';
+            }
+        }
+
+        // 验证验证码
+        async function validateVerificationCode() {
+            const codeInput = document.getElementById('verificationCode');
+            const code = codeInput.value.trim();
+            
+            if (!code) {
+                showVerificationStatus('请输入验证码', 'error');
+                return;
+            }
+            
+            if (code.length < 8) {
+                showVerificationStatus('验证码最少8个字符', 'error');
+                return;
+            }
+            
+            try {
+                const response = await fetch('{{context_path}}/chat/api/verification-code', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ 
+                        action: 'validate',
+                        custom_code: code 
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (result.valid) {
+                    verificationValidated = true;
+                    
+                    // 保存验证状态到浏览器存储
+                    saveVerificationStatus();
+                    
+                    updateVerificationStatus();
+                    showVerificationStatus('验证码验证成功！', 'success');
+                    codeInput.value = ''; // 清除输入
+                    
+                    // 验证成功后隐藏遮罩层
+                    setTimeout(() => {
+                        hideVerificationOverlay();
+                    }, 1500);
+                } else {
+                    showVerificationStatus(result.message || '验证码验证失败', 'error');
+                }
+            } catch (error) {
+                console.error('验证码验证失败:', error);
+                showVerificationStatus('验证码验证失败，请检查网络连接', 'error');
+            }
+        }
+
+        // 显示验证码状态
+        function showVerificationStatus(message, type) {
+            const statusDiv = document.getElementById('verificationStatus');
+            statusDiv.textContent = message;
+            statusDiv.style.display = 'block';
+            
+            if (type === 'success') {
+                statusDiv.style.background = '#d1fae5';
+                statusDiv.style.color = '#065f46';
+            } else {
+                statusDiv.style.background = '#fee2e2';
+                statusDiv.style.color = '#991b1b';
+            }
+            
+            // 3秒后自动隐藏
+            setTimeout(() => {
+                statusDiv.style.display = 'none';
+            }, 3000);
         }
     </script>
 </body>

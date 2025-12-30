@@ -433,6 +433,131 @@ async def static_page(action: str = None, html_content: str = None, filename: st
     return await handle_wechat_tool("static_page", arguments)
 
 @mcp.tool()
+async def user_verification_code(action: str = "generate", custom_code: str = None) -> str:
+    """用户验证码管理工具，生成和验证用户验证码
+
+    Args:
+        action: 操作类型 (generate - 生成验证码, validate - 验证验证码, cleanup - 清理过期验证码)
+        custom_code: 自定义验证码（generate操作时可选，需要8位英文单词和数字组合）
+        
+    Returns:
+        操作结果文本
+        
+    Examples:
+        >>> # 生成随机验证码
+        >>> await user_verification_code(action="generate")
+        
+        >>> # 生成自定义验证码
+        >>> await user_verification_code(action="generate", custom_code="apple123")
+        
+        >>> # 验证验证码
+        >>> await user_verification_code(action="validate", custom_code="apple123")
+        
+        >>> # 清理过期验证码
+        >>> await user_verification_code(action="cleanup")
+    """
+    try:
+        from shared.storage.storage_manager import StorageManager
+        
+        # 初始化存储管理器
+        storage_manager = StorageManager()
+        
+        if action == "generate":
+            return await generate_verification_code(storage_manager, custom_code)
+        elif action == "validate":
+            return await validate_verification_code(storage_manager, custom_code)
+        elif action == "cleanup":
+            return await cleanup_expired_codes(storage_manager)
+        else:
+            return f"错误：无效的操作类型 '{action}'，支持的操作：generate, validate, cleanup"
+    except Exception as e:
+        logger.error(f"验证码操作失败: {e}")
+        return f"验证码操作失败: {str(e)}"
+
+async def generate_verification_code(storage_manager, custom_code: str = None) -> str:
+    """生成验证码"""
+    import uuid
+    from datetime import datetime, timedelta
+    
+    if custom_code:
+        # 验证自定义验证码格式
+        if len(custom_code) < 8:
+            return "错误：验证码长度必须大于等于8位"
+        
+        # 检查是否包含英文字母和数字
+        has_letter = any(c.isalpha() for c in custom_code)
+        has_digit = any(c.isdigit() for c in custom_code)
+        
+        if not (has_letter and has_digit):
+            return "错误：验证码必须包含英文字母和数字"
+        
+        # 检查是否已存在
+        if storage_manager.get_verification_code(custom_code):
+            return "错误：该验证码已存在，请选择其他验证码"
+        
+        verification_code = custom_code
+    else:
+        # 生成随机验证码：使用UUID（无-号，小写），不截取，确保包含至少一个字母和一个数字
+        while True:
+            # 生成UUID并去除-号，转为小写（32位字符）
+            verification_code = uuid.uuid4().hex.lower()
+            
+            # 检查验证码是否包含至少一个字母和一个数字
+            has_letter = any(c.isalpha() for c in verification_code)
+            has_digit = any(c.isdigit() for c in verification_code)
+            
+            # 检查是否已存在且格式正确
+            if not storage_manager.get_verification_code(verification_code) and has_letter and has_digit:
+                break
+    
+    # 获取验证码有效天数配置
+    valid_days = int(os.getenv('OPENAI_VERIFICATION_CODE_VALID_DAYS', '90'))
+    
+    # 设置过期时间（90天后）
+    expires_at = datetime.now() + timedelta(days=valid_days)
+    
+    # 保存验证码
+    code_info = {
+        'code': verification_code,
+        'created_at': datetime.now().isoformat(),
+        'expires_at': expires_at.isoformat(),
+        'used': False,
+        'source': 'mcp_generated'
+    }
+    
+    storage_manager.save_verification_code(code_info)
+    
+    return f"验证码生成成功：{verification_code}\n有效期：{valid_days}天\n生成时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+
+async def validate_verification_code(storage_manager, code: str) -> str:
+    """验证验证码"""
+    if not code:
+        return "错误：请提供验证码"
+    
+    # 获取验证码信息
+    code_info = storage_manager.get_verification_code(code)
+    
+    if not code_info:
+        return "验证码不存在"
+    
+    # 检查是否已过期
+    from datetime import datetime
+    expires_at = datetime.fromisoformat(code_info['expires_at'])
+    if datetime.now() > expires_at:
+        return "验证码已过期"
+    
+    # 检查是否已使用
+    if code_info.get('used', False):
+        return "验证码已使用"
+    
+    return "验证码有效"
+
+async def cleanup_expired_codes(storage_manager) -> str:
+    """清理过期验证码"""
+    cleaned_count = storage_manager.cleanup_expired_verification_codes()
+    return f"清理完成，删除了 {cleaned_count} 个过期验证码"
+
+@mcp.tool()
 async def storage_sync(direction: str = "from_remote") -> str:
     """远程存储同步工具，用于在本地和S3兼容存储之间同步文件
 

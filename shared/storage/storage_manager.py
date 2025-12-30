@@ -29,7 +29,8 @@ class StorageManager:
         self.data: Dict[str, Any] = {
             'media': [],  # 素材列表
             'static_pages': [],  # 静态网页列表
-            'wechat_messages': []  # 微信消息列表
+            'wechat_messages': [],  # 微信消息列表
+            'user_verification_codes': []  # 用户验证码列表
         }
         
         # 初始化S3相关配置
@@ -40,11 +41,23 @@ class StorageManager:
         
         # 启动定时同步（如果配置了）
         self._start_scheduled_sync()
+        
+        # 启动验证码清理定时任务（如果配置了）
+        self._start_verification_code_cleanup()
     
     def _init_s3_config(self):
         """初始化S3相关配置"""
         # 远程存储开关
         self.remote_enabled = os.getenv('STORAGE_REMOTE_ENABLE', 'false').lower() == 'true'
+        
+        # S3读写权限控制
+        self.s3_read_only = os.getenv('STORAGE_S3_READ_ONLY', 'false').lower() == 'true'
+        self.s3_write_enabled = os.getenv('STORAGE_S3_WRITE_ENABLED', 'true').lower() == 'true'
+        
+        # 如果设置了只读模式，则禁用写入
+        if self.s3_read_only:
+            self.s3_write_enabled = False
+            logger.info("S3存储设置为只读模式")
         
         # S3配置
         self.s3_endpoint_url = os.getenv('STORAGE_S3_ENDPOINT', '')
@@ -138,6 +151,8 @@ class StorageManager:
                     self.data['static_pages'] = []
                 if 'wechat_messages' not in self.data:
                     self.data['wechat_messages'] = []
+                if 'user_verification_codes' not in self.data:
+                    self.data['user_verification_codes'] = []
             except Exception as e:
                 logger.error(f"加载存储数据失败: {e}")
                 self.data = {'media': [], 'static_pages': []}
@@ -153,9 +168,11 @@ class StorageManager:
             with open(self.db_file, 'w', encoding='utf-8') as f:
                 json.dump(self.data, f, ensure_ascii=False, indent=2)
             
-            # 如果启用了远程存储，将数据文件同步到S3
-            if self.remote_enabled and self.s3_client:
+            # 如果启用了远程存储且允许写入，将数据文件同步到S3
+            if self.remote_enabled and self.s3_client and self.s3_write_enabled:
                 self._upload_to_s3(self.db_file, self._get_s3_key(self.db_file))
+            elif self.remote_enabled and not self.s3_write_enabled:
+                logger.debug("S3写入功能已禁用，跳过文件上传")
         except Exception as e:
             logger.error(f"保存存储数据失败: {e}")
     
@@ -171,6 +188,11 @@ class StorageManager:
     def _upload_to_s3(self, file_path: str, s3_key: str) -> bool:
         """上传文件到S3存储"""
         if not self.s3_client or not os.path.exists(file_path):
+            return False
+        
+        # 检查写入权限
+        if not self.s3_write_enabled:
+            logger.debug(f"S3写入功能已禁用，跳过文件上传: {s3_key}")
             return False
         
         try:
@@ -208,6 +230,11 @@ class StorageManager:
     def _delete_from_s3(self, s3_key: str) -> bool:
         """从S3存储删除文件"""
         if not self.s3_client:
+            return False
+        
+        # 检查写入权限
+        if not self.s3_write_enabled:
+            logger.debug(f"S3写入功能已禁用，跳过文件删除: {s3_key}")
             return False
         
         try:
@@ -330,6 +357,10 @@ class StorageManager:
         """将本地文件同步到远程S3存储"""
         if not self.remote_enabled or not self.s3_client:
             return {'status': 'error', 'message': '远程存储未启用'}
+        
+        # 检查写入权限
+        if not self.s3_write_enabled:
+            return {'status': 'error', 'message': 'S3写入功能已禁用'}
         
         try:
             sync_count = 0
@@ -565,12 +596,14 @@ class StorageManager:
 
         self._save_data()
         
-        # 如果启用了远程存储，将静态页面文件同步到S3
-        if self.remote_enabled and self.s3_client:
+        # 如果启用了远程存储且允许写入，将静态页面文件同步到S3
+        if self.remote_enabled and self.s3_client and self.s3_write_enabled:
             filepath = page_info.get('filepath')
             if filepath and os.path.exists(filepath):
                 s3_key = self._get_s3_key(filepath)
                 self._upload_to_s3(filepath, s3_key)
+        elif self.remote_enabled and not self.s3_write_enabled:
+            logger.debug("S3写入功能已禁用，跳过静态页面文件上传")
 
     def get_static_page(self, filename: str) -> Optional[Dict[str, Any]]:
         """
@@ -623,8 +656,8 @@ class StorageManager:
                     except Exception as e:
                         logger.error(f"删除本地静态网页文件失败: {filepath}, 错误: {e}")
                 
-                # 如果启用了远程存储，从S3删除文件
-                if self.remote_enabled and self.s3_client:
+                # 如果启用了远程存储且允许写入，从S3删除文件
+                if self.remote_enabled and self.s3_client and self.s3_write_enabled:
                     if filepath:
                         s3_key = self._get_s3_key(filepath)
                         self._delete_from_s3(s3_key)
@@ -633,6 +666,8 @@ class StorageManager:
                         default_filepath = os.path.join(os.getcwd(), 'data', 'static_pages', filename)
                         s3_key = self._get_s3_key(default_filepath)
                         self._delete_from_s3(s3_key)
+                elif self.remote_enabled and not self.s3_write_enabled:
+                    logger.debug("S3写入功能已禁用，跳过S3文件删除")
                 
                 # 删除记录并保存数据
                 del self.data['static_pages'][i]
@@ -674,4 +709,257 @@ class StorageManager:
             'earliest_created': created_times[0] if created_times else None,
             'latest_created': created_times[-1] if created_times else None
         }
+
+    # ========== 用户验证码管理方法 ==========
+
+    def save_verification_code(self, code_info: Dict[str, Any]):
+        """
+        保存用户验证码信息
+        
+        Args:
+            code_info: 验证码信息字典，包含 code, created_at, expires_at, used, source 等
+        """
+        code = code_info.get('code')
+        if not code:
+            logger.warning("验证码信息缺少 code，跳过保存")
+            return
+        
+        # 检查是否已存在
+        existing_index = None
+        for i, existing_code in enumerate(self.data['user_verification_codes']):
+            if existing_code.get('code') == code:
+                existing_index = i
+                break
+        
+        if existing_index is not None:
+            # 更新现有记录
+            self.data['user_verification_codes'][existing_index].update(code_info)
+            logger.info(f"更新验证码信息: {code}")
+        else:
+            # 添加新记录
+            self.data['user_verification_codes'].append(code_info)
+            logger.info(f"保存验证码信息: {code}")
+        
+        self._save_data()
+
+    def get_verification_code(self, code: str) -> Optional[Dict[str, Any]]:
+        """
+        获取验证码信息
+        
+        Args:
+            code: 验证码字符串
+            
+        Returns:
+            验证码信息字典，如果不存在则返回 None
+        """
+        # 每次都重新从文件加载数据，确保获取最新内容
+        self._load_data()
+        for code_info in self.data['user_verification_codes']:
+            if code_info.get('code') == code:
+                return code_info
+        return None
+
+    def list_verification_codes(self, only_valid: bool = False) -> List[Dict[str, Any]]:
+        """
+        列出用户验证码
+        
+        Args:
+            only_valid: 是否只返回有效的验证码
+            
+        Returns:
+            验证码列表
+        """
+        # 每次都重新从文件加载数据，确保获取最新内容
+        self._load_data()
+        
+        if not only_valid:
+            return self.data['user_verification_codes'].copy()
+        
+        # 只返回有效的验证码
+        from datetime import datetime
+        valid_codes = []
+        now = datetime.now()
+        
+        for code_info in self.data['user_verification_codes']:
+            # 检查是否过期
+            try:
+                expires_at = datetime.fromisoformat(code_info.get('expires_at', ''))
+                if now <= expires_at and not code_info.get('used', False):
+                    valid_codes.append(code_info)
+            except (ValueError, TypeError):
+                # 如果时间格式错误，跳过该记录
+                continue
+        
+        return valid_codes
+
+    def delete_verification_code(self, code: str) -> bool:
+        """
+        删除验证码信息
+        
+        Args:
+            code: 验证码字符串
+            
+        Returns:
+            是否删除成功
+        """
+        for i, code_info in enumerate(self.data['user_verification_codes']):
+            if code_info.get('code') == code:
+                del self.data['user_verification_codes'][i]
+                self._save_data()
+                logger.info(f"删除验证码: {code}")
+                return True
+        return False
+
+    def mark_verification_code_used(self, code: str) -> bool:
+        """
+        标记验证码为已使用
+        
+        Args:
+            code: 验证码字符串
+            
+        Returns:
+            是否标记成功
+        """
+        for i, code_info in enumerate(self.data['user_verification_codes']):
+            if code_info.get('code') == code:
+                self.data['user_verification_codes'][i]['used'] = True
+                self.data['user_verification_codes'][i]['used_at'] = datetime.now().isoformat()
+                self._save_data()
+                logger.info(f"标记验证码已使用: {code}")
+                return True
+        return False
+
+    def cleanup_expired_verification_codes(self) -> int:
+        """
+        清理过期的验证码
+        
+        Returns:
+            删除的验证码数量
+        """
+        from datetime import datetime
+        
+        # 每次都重新从文件加载数据，确保获取最新内容
+        self._load_data()
+        
+        now = datetime.now()
+        expired_codes = []
+        
+        # 找出过期的验证码
+        for code_info in self.data['user_verification_codes']:
+            try:
+                expires_at = datetime.fromisoformat(code_info.get('expires_at', ''))
+                if now > expires_at:
+                    expired_codes.append(code_info.get('code'))
+            except (ValueError, TypeError):
+                # 如果时间格式错误，也标记为过期
+                expired_codes.append(code_info.get('code'))
+        
+        # 删除过期的验证码
+        cleaned_count = 0
+        for code in expired_codes:
+            if self.delete_verification_code(code):
+                cleaned_count += 1
+        
+        if cleaned_count > 0:
+            self._save_data()
+            logger.info(f"清理了 {cleaned_count} 个过期验证码")
+        
+        return cleaned_count
+    
+    def get_verification_code_valid_days(self) -> int:
+        """
+        获取验证码有效天数配置
+        
+        Returns:
+            有效天数，默认90天
+        """
+        return int(os.getenv('OPENAI_VERIFICATION_CODE_VALID_DAYS', '90'))
+    
+    def get_verification_code_stats(self) -> Dict[str, Any]:
+        """
+        获取验证码统计信息
+        
+        Returns:
+            包含总数量、有效数量、已使用数量、过期数量的字典
+        """
+        # 每次都重新从文件加载数据，确保获取最新内容
+        self._load_data()
+        
+        from datetime import datetime
+        now = datetime.now()
+        
+        total_count = len(self.data['user_verification_codes'])
+        valid_count = 0
+        used_count = 0
+        expired_count = 0
+        
+        for code_info in self.data['user_verification_codes']:
+            # 检查是否已使用
+            if code_info.get('used', False):
+                used_count += 1
+                continue
+            
+            # 检查是否过期
+            try:
+                expires_at = datetime.fromisoformat(code_info.get('expires_at', ''))
+                if now > expires_at:
+                    expired_count += 1
+                else:
+                    valid_count += 1
+            except (ValueError, TypeError):
+                # 如果时间格式错误，计入过期
+                expired_count += 1
+        
+        return {
+            'total_count': total_count,
+            'valid_count': valid_count,
+            'used_count': used_count,
+            'expired_count': expired_count
+        }
+    
+    def _start_verification_code_cleanup(self):
+        """启动验证码清理定时任务"""
+        # 从环境变量获取验证码清理cron表达式
+        cleanup_cron = os.getenv('OPENAI_VERIFICATION_CODE_CLEANUP_CRON', '30 0 * * *')  # 默认每天凌晨0点30分执行
+        
+        if not cleanup_cron:
+            logger.info("验证码清理定时任务未配置（OPENAI_VERIFICATION_CODE_CLEANUP_CRON环境变量未设置）")
+            return
+        
+        try:
+            from apscheduler.schedulers.background import BackgroundScheduler
+            from apscheduler.triggers.cron import CronTrigger
+            
+            # 创建调度器（如果还没有的话）
+            if not hasattr(self, 'scheduler'):
+                self.scheduler = BackgroundScheduler()
+                
+                # 如果调度器没有启动，启动它
+                if not self.scheduler.running:
+                    self.scheduler.start()
+                    logger.info("调度器启动成功")
+            
+            # 添加验证码清理定时任务
+            self.scheduler.add_job(
+                self._cleanup_expired_verification_codes_job,
+                trigger=CronTrigger.from_crontab(cleanup_cron),
+                id='verification_code_cleanup_job',
+                name='Verification Code Cleanup',
+                replace_existing=True
+            )
+            
+            logger.info(f"验证码清理定时任务已启动，Cron表达式: {cleanup_cron}")
+        except Exception as e:
+            logger.error(f"启动验证码清理定时任务失败: {e}")
+    
+    def _cleanup_expired_verification_codes_job(self):
+        """验证码清理定时任务执行函数"""
+        try:
+            logger.info("开始执行验证码清理任务")
+            cleaned_count = self.cleanup_expired_verification_codes()
+            logger.info(f"验证码清理任务完成，清理了 {cleaned_count} 个过期验证码")
+            return cleaned_count
+        except Exception as e:
+            logger.error(f"验证码清理任务执行失败: {e}")
+            return 0
 

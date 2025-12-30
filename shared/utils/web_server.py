@@ -16,7 +16,7 @@ from typing import Optional, Dict, List, Any, Union
 from xml.etree import ElementTree as ET
 
 from flask import Flask, request, Response
-from shared.utils.ai_service import get_ai_service
+from shared.utils.ai_service import get_ai_service, set_ai_service
 
 logger = logging.getLogger(__name__)
 
@@ -284,7 +284,7 @@ class StaticPageServer:
         # 微信消息AI响应长度限制
         self.wechat_msg_ai_len_limit = int(os.getenv('WECHAT_MSG_AI_LEN_LIMIT', '600'))
         # 微信消息AI超时提示
-        self.wechat_msg_ai_timeout_prompt = os.getenv('WECHAT_MSG_AI_TIMEOUT_PROMPT', '100')
+        self.wechat_msg_ai_timeout_prompt = os.getenv('WECHAT_MSG_AI_TIMEOUT_PROMPT', '')
         # 微信消息AI缓存大小限制
         self.wechat_msg_ai_cache_size = int(os.getenv('WECHAT_MSG_AI_CACHE_SIZE', '100'))
         
@@ -362,6 +362,15 @@ class StaticPageServer:
             elif path == '/api/config' or path == '/chat/api/config':
                 # 配置API（支持直接访问和chat下访问）
                 return self._handle_config_api()
+            elif path == '/api/verification-code' or path == '/chat/api/verification-code':
+                # 验证码验证API（支持直接访问和chat下访问）
+                return self._handle_verification_code_api()
+            elif path == '/api/generate-code' or path == '/chat/api/generate-code':
+                # 验证码生成API（支持直接访问和chat下访问）
+                return self._handle_generate_code_api()
+            elif path == '/api/validate-password':
+                # 密码验证API
+                return self._handle_validate_password()
             elif path == '/wechat/reply':
                 # 微信服务器验证
                 return self._handle_wechat_verify()
@@ -407,8 +416,14 @@ class StaticPageServer:
             elif path == '/api/config':
                 # 配置API，由_handle_config_api统一处理GET和POST
                 return self._handle_config_api()
+            elif path == '/api/verification-code' or path == '/chat/api/verification-code':
+                # 验证码验证API（支持直接访问和chat下访问）
+                return self._handle_verification_code_api()
+            elif path == '/api/generate-code' or path == '/chat/api/generate-code':
+                # 验证码生成API（支持直接访问和chat下访问）
+                return self._handle_generate_code_api()
             elif path == '/api/validate-password':
-                # 密码验证请求
+                # 密码验证API
                 return self._handle_validate_password()
             elif path == '/api/static-page/delete':
                 # 静态页面删除API
@@ -521,6 +536,11 @@ class StaticPageServer:
             }
             
             # 使用模板渲染 - 传递字典参数
+            template_vars = {
+                'context_path': self.context_path,
+                'wechat_official_account': os.getenv('WECHAT_OFFICIAL_ACCOUNT_NAME', 'AI析数助手')
+            }
+            
             html = my_render_template(str(template_path), template_vars)
             
             return html, 200, {'Content-Type': 'text/html; charset=utf-8'}
@@ -537,7 +557,8 @@ class StaticPageServer:
             
             # 准备模板变量
             template_vars = {
-                'context_path': self.context_path
+                'context_path': self.context_path,
+                'wechat_official_account': os.getenv('WECHAT_OFFICIAL_ACCOUNT_NAME', 'AI析数助手')
             }
             
             # 使用模板渲染 - 传递字典参数
@@ -627,6 +648,7 @@ class StaticPageServer:
                     return json.dumps({'error': '缺少必要的配置参数'}), 400, {'Content-Type': 'application/json'}
                 
                 # 获取AI服务实例并保存配置
+                set_ai_service("web", api_url, api_key, model, system_prompt)
                 ai_service = get_ai_service()
                 success = ai_service.save_config(api_url, api_key, model, system_prompt)
                 
@@ -656,6 +678,193 @@ class StaticPageServer:
         except Exception as e:
             logger.error(f"处理配置API失败: {e}")
             return json.dumps({'error': str(e)}), 500, {'Content-Type': 'application/json'}
+    
+    def _handle_verification_code_api(self):
+        """处理验证码验证API请求，不需要密码验证"""
+        try:
+            if request.method == 'POST':
+                # 处理验证码验证请求
+                data = request.get_json()
+                if not data:
+                    return json.dumps({'error': '无效的请求数据'}), 400, {'Content-Type': 'application/json'}
+                
+                # 只支持验证验证码
+                action = data.get('action', 'validate')
+                if action != 'validate':
+                    return json.dumps({'error': '验证码API只支持验证操作'}), 400, {'Content-Type': 'application/json'}
+                
+                custom_code = data.get('custom_code')
+                
+                # 导入存储管理器
+                from shared.storage.storage_manager import StorageManager
+                storage_manager = StorageManager()
+                
+                # 验证验证码
+                return self._validate_verification_code(storage_manager, custom_code)
+            else:
+                return json.dumps({'error': '验证码验证API只支持POST请求'}), 405, {'Content-Type': 'application/json'}
+            
+        except Exception as e:
+            logger.error(f"处理验证码验证API失败: {e}")
+            return json.dumps({'error': str(e)}), 500, {'Content-Type': 'application/json'}
+    
+    def _handle_generate_code_api(self):
+        """处理验证码生成API请求，需要密码验证"""
+        try:
+            if request.method == 'POST':
+                # 验证密码（复用现有的密码验证方法）
+                if not self._validate_request_password():
+                    return json.dumps({'success': False, 'message': 'Invalid password'}), 401, {'Content-Type': 'application/json'}
+                    
+                # 处理验证码生成请求
+                data = request.get_json()
+                if not data:
+                    return json.dumps({'error': '无效的请求数据'}), 400, {'Content-Type': 'application/json'}
+                
+                # 只支持生成验证码
+                action = data.get('action', 'generate')
+                if action != 'generate':
+                    return json.dumps({'error': '验证码生成API只支持生成操作'}), 400, {'Content-Type': 'application/json'}
+                
+                custom_code = data.get('custom_code')
+                
+                # 导入存储管理器
+                from shared.storage.storage_manager import StorageManager
+                storage_manager = StorageManager()
+                
+                # 生成验证码
+                return self._generate_verification_code(storage_manager, custom_code)
+            else:  # GET请求
+                # 生成验证码（GET方式用于简单生成）
+                from shared.storage.storage_manager import StorageManager
+                storage_manager = StorageManager()
+                return self._generate_verification_code(storage_manager, None)
+            
+        except Exception as e:
+            logger.error(f"处理验证码生成API失败: {e}")
+            return json.dumps({'error': str(e)}), 500, {'Content-Type': 'application/json'}
+    
+    def _generate_verification_code(self, storage_manager, custom_code: str = None):
+        """生成验证码"""
+        import uuid
+        from datetime import datetime, timedelta
+        
+        if custom_code:
+            # 验证自定义验证码格式
+            if len(custom_code) < 8:
+                return json.dumps({'error': '验证码长度必须大于等于8位'}), 400, {'Content-Type': 'application/json'}
+            
+            # 检查是否包含英文字母和数字
+            has_letter = any(c.isalpha() for c in custom_code)
+            has_digit = any(c.isdigit() for c in custom_code)
+            
+            if not (has_letter and has_digit):
+                return json.dumps({'error': '验证码必须包含英文字母和数字'}), 400, {'Content-Type': 'application/json'}
+            
+            # 检查是否已存在
+            if storage_manager.get_verification_code(custom_code):
+                return json.dumps({'error': '该验证码已存在，请选择其他验证码'}), 400, {'Content-Type': 'application/json'}
+            
+            verification_code = custom_code
+        else:
+            # 生成随机验证码：使用UUID（无-号，小写），不截取，确保包含至少一个字母和一个数字
+            while True:
+                # 生成UUID并去除-号，转为小写（32位字符）
+                verification_code = uuid.uuid4().hex.lower()
+                
+                # 检查验证码是否包含至少一个字母和一个数字
+                has_letter = any(c.isalpha() for c in verification_code)
+                has_digit = any(c.isdigit() for c in verification_code)
+                
+                # 检查是否已存在且格式正确
+                if not storage_manager.get_verification_code(verification_code) and has_letter and has_digit:
+                    break
+        
+        # 获取验证码有效天数配置
+        valid_days = int(os.getenv('OPENAI_VERIFICATION_CODE_VALID_DAYS', '90'))
+        
+        # 设置过期时间（90天后）
+        expires_at = datetime.now() + timedelta(days=valid_days)
+        
+        # 保存验证码
+        code_info = {
+            'code': verification_code,
+            'created_at': datetime.now().isoformat(),
+            'expires_at': expires_at.isoformat(),
+            'used': False,
+            'source': 'webserver_generated'
+        }
+        
+        storage_manager.save_verification_code(code_info)
+        
+        return json.dumps({
+            'success': True, 
+            'code': verification_code,
+            'expires_at': expires_at.isoformat(),
+            'valid_days': valid_days,
+            'message': f'验证码生成成功：{verification_code}'
+        }), 200, {'Content-Type': 'application/json'}
+    
+    def _validate_verification_code(self, storage_manager, code: str):
+        """验证验证码"""
+        if not code:
+            return json.dumps({'error': '请提供验证码'}), 400, {'Content-Type': 'application/json'}
+        
+        # 获取验证码信息
+        code_info = storage_manager.get_verification_code(code)
+        
+        if not code_info:
+            return json.dumps({'valid': False, 'message': '验证码不存在'}), 200, {'Content-Type': 'application/json'}
+        
+        # 检查是否已过期
+        from datetime import datetime
+        expires_at = datetime.fromisoformat(code_info['expires_at'])
+        if datetime.now() > expires_at:
+            return json.dumps({'valid': False, 'message': '验证码已过期'}), 200, {'Content-Type': 'application/json'}
+        
+        # 检查是否已使用
+        if code_info.get('used', False):
+            return json.dumps({'valid': False, 'message': '验证码已使用'}), 200, {'Content-Type': 'application/json'}
+        
+        return json.dumps({'valid': True, 'message': '验证码有效'}), 200, {'Content-Type': 'application/json'}
+    
+    def _use_verification_code(self, storage_manager, code: str):
+        """使用验证码（标记为已使用）"""
+        if not code:
+            return json.dumps({'error': '请提供验证码'}), 400, {'Content-Type': 'application/json'}
+        
+        # 先验证验证码是否有效
+        code_info = storage_manager.get_verification_code(code)
+        
+        if not code_info:
+            return json.dumps({'error': '验证码不存在'}), 400, {'Content-Type': 'application/json'}
+        
+        # 检查是否已过期
+        from datetime import datetime
+        expires_at = datetime.fromisoformat(code_info['expires_at'])
+        if datetime.now() > expires_at:
+            return json.dumps({'error': '验证码已过期'}), 400, {'Content-Type': 'application/json'}
+        
+        # 检查是否已使用
+        if code_info.get('used', False):
+            return json.dumps({'error': '验证码已使用'}), 400, {'Content-Type': 'application/json'}
+        
+        # 标记为已使用
+        success = storage_manager.mark_verification_code_used(code)
+        
+        if success:
+            return json.dumps({'success': True, 'message': '验证码使用成功'}), 200, {'Content-Type': 'application/json'}
+        else:
+            return json.dumps({'error': '验证码使用失败'}), 500, {'Content-Type': 'application/json'}
+    
+    def _cleanup_expired_codes(self, storage_manager):
+        """清理过期验证码"""
+        cleaned_count = storage_manager.cleanup_expired_verification_codes()
+        return json.dumps({
+            'success': True, 
+            'cleaned_count': cleaned_count,
+            'message': f'清理完成，删除了 {cleaned_count} 个过期验证码'
+        }), 200, {'Content-Type': 'application/json'}
     
     def _handle_proxy_request(self, path):
         """处理反向代理请求"""
@@ -867,37 +1076,6 @@ class StaticPageServer:
             logger.error(f"处理聊天API失败: {e}")
             return json.dumps({'error': str(e)}), 500, {'Content-Type': 'application/json'}
     
-    def _handle_config_post(self):
-        """处理配置保存请求"""
-        try:
-            # 获取请求数据
-            data = request.get_json()
-            if not data:
-                return json.dumps({'error': '无效的请求数据'}), 400, {'Content-Type': 'application/json'}
-            
-            # 从请求数据中提取配置参数
-            api_url = data.get('api_url', '')
-            api_key = data.get('api_key', '')
-            model = data.get('model', '')
-            system_prompt = data.get('system_prompt', '')
-            
-            # 验证必要参数
-            if not all([api_url, api_key, model]):
-                return json.dumps({'error': '缺少必要的配置参数'}), 400, {'Content-Type': 'application/json'}
-            
-            # 获取AI服务实例并保存配置
-            ai_service = get_ai_service()
-            success = ai_service.save_config(api_url, api_key, model, system_prompt)
-            
-            if success:
-                return json.dumps({'success': True, 'message': '配置保存成功'}), 200, {'Content-Type': 'application/json'}
-            else:
-                return json.dumps({'error': '配置保存失败'}), 500, {'Content-Type': 'application/json'}
-            
-        except Exception as e:
-            logger.error(f"处理配置保存请求失败: {e}")
-            return json.dumps({'error': str(e)}), 500, {'Content-Type': 'application/json'}
-    
     def _handle_validate_password(self):
         """处理密码验证请求"""
         try:
@@ -1061,8 +1239,8 @@ class StaticPageServer:
                         response_xml = self._build_wechat_response_xml(from_user, to_user, cached_response)
                         return response_xml, 200, {'Content-Type': 'application/xml; charset=utf-8'}
                     
-                    # 7. 调用AI服务获取回复
-                    ai_service = get_ai_service()
+                    # 7. 调用AI服务获取回复（使用公众号专用配置）
+                    ai_service = get_ai_service(service_type="wechat")
                     
                     # 确保每个线程都有自己的事件循环
                     try:
@@ -1071,8 +1249,9 @@ class StaticPageServer:
                         loop = asyncio.new_event_loop()
                         asyncio.set_event_loop(loop)
                     
-                    # 从环境变量获取交互模式，默认为stream
-                    interaction_mode = os.getenv('OPENAI_INTERACTION_MODE', 'stream').strip().lower()
+                    # 从环境变量获取交互模式，优先使用微信专用配置，默认使用block模式
+                    interaction_mode = os.getenv('OPENAI_WECHAT_INTERACTION_MODE', 
+                                               os.getenv('OPENAI_INTERACTION_MODE', 'block')).strip().lower()
                     # 验证交互模式
                     if interaction_mode not in ['stream', 'block']:
                         interaction_mode = 'block'  # 默认使用阻塞模式

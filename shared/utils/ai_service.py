@@ -6,8 +6,11 @@ import os
 import json
 import logging
 import asyncio
+from warnings import catch_warnings
 import httpx
 from typing import Dict, Any, List, Optional, AsyncGenerator
+
+from httpx._transports.base import T
 
 logger = logging.getLogger(__name__)
 
@@ -15,27 +18,45 @@ logger = logging.getLogger(__name__)
 class AIService:
     """OpenAI API 服务类"""
     
-    def __init__(self, api_url: Optional[str] = None, api_key: Optional[str] = None, 
+    def __init__(self, service_type: str = "web", api_url: Optional[str] = None, api_key: Optional[str] = None, 
                  model: Optional[str] = None, system_prompt: Optional[str] = None):
         """
         初始化AI服务
         
         Args:
-            api_url: API基础URL，默认为环境变量 OPENAI_API_URL 或 AI_API_URL
-            api_key: API密钥，默认为环境变量 OPENAI_API_KEY 或 AI_API_KEY
-            model: 模型名称，默认为环境变量 OPENAI_MODEL 或 AI_MODEL
-            system_prompt: 系统提示词，默认为环境变量 OPENAI_PROMPT 或 AI_PROMPT
+            service_type: 服务类型，'web'表示页面问答，'wechat'表示公众号问答
+            api_url: API基础URL
+            api_key: API密钥
+            model: 模型名称
+            system_prompt: 系统提示词
         """
-        # 优先使用OPENAI_前缀的环境变量，兼容AI_前缀的变量
-        self.api_url = api_url or os.getenv('AI_API_URL') or os.getenv('OPENAI_API_URL') 
-        self.api_key = api_key or os.getenv('AI_API_KEY') or os.getenv('OPENAI_API_KEY') 
-        self.model = model or os.getenv('AI_MODEL') or os.getenv('OPENAI_MODEL', 'gpt-3.5-turbo') 
-        self.system_prompt = system_prompt or os.getenv('AI_PROMPT') or os.getenv('OPENAI_PROMPT', '你是一个专业的热点资讯分析师，专注于实时追踪、深度解析和前瞻预测全球范围内的热点新闻事件。') 
+        self.service_type = service_type
         
-        # 默认设置
-        self.max_tokens = int(os.getenv('AI_MAX_TOKENS') or os.getenv('OPENAI_MAX_TOKENS', '1000'))
-        self.temperature = float(os.getenv('AI_TEMPERATURE') or os.getenv('OPENAI_TEMPERATURE', '0.7'))
-        self.timeout = float(os.getenv('AI_TIMEOUT') or os.getenv('OPENAI_TIMEOUT', '30.0'))
+        # 根据服务类型选择配置前缀
+        if service_type == "wechat":
+            # 公众号问答配置
+            prefix = "OPENAI_WECHAT_"
+            self.api_url = os.getenv(f'{prefix}API_URL') or os.getenv('OPENAI_API_URL') 
+            self.api_key = os.getenv(f'{prefix}API_KEY') or os.getenv('OPENAI_API_KEY') 
+            self.model = os.getenv(f'{prefix}MODEL') or os.getenv('OPENAI_MODEL') 
+            self.system_prompt = os.getenv(f'{prefix}PROMPT') or os.getenv('OPENAI_PROMPT') 
+            
+            # 公众号问答专用参数
+            self.max_tokens = int(os.getenv(f'{prefix}MAX_TOKENS', '4096'))
+            self.temperature = float(os.getenv(f'{prefix}TEMPERATURE', '0.8'))
+            self.timeout = float(os.getenv(f'{prefix}TIMEOUT', '300'))
+        else:
+            # 页面问答配置（默认）
+            prefix = "OPENAI_"
+            self.api_url = api_url or os.getenv(f'{prefix}API_URL')
+            self.api_key = api_key or os.getenv(f'{prefix}API_KEY')
+            self.model = model or os.getenv(f'{prefix}MODEL')
+            self.system_prompt = system_prompt or os.getenv(f'{prefix}PROMPT')
+            
+            # 页面问答专用参数
+            self.max_tokens = int(os.getenv(f'{prefix}MAX_TOKENS', '4096'))
+            self.temperature = float(os.getenv(f'{prefix}TEMPERATURE', '0.8'))
+            self.timeout = float(os.getenv(f'{prefix}TIMEOUT', '300'))
         
         # 只在第一次初始化时从配置文件加载，后续通过save_config更新
         if not hasattr(self.__class__, '_config_loaded'):
@@ -132,7 +153,10 @@ class AIService:
                     ) as response:
                         
                         if response.status_code != 200:
-                            logger.error(f"AI API调用失败: {response.status_code} - {response.text}")
+                            # 对于流式响应，需要先读取内容才能访问text属性
+                            error_content = await response.aread()
+                            error_text = error_content.decode('utf-8') if error_content else ''
+                            logger.error(f"AI API调用失败: {response.status_code} - {error_text}")
                             return f"AI服务暂时不可用: {response.status_code}"
                         
                         # 处理流式响应
@@ -278,7 +302,10 @@ class AIService:
             ) as response:
                 
                 if response.status_code != 200:
-                    logger.error(f"AI API调用失败: {response.status_code} - {response.text}")
+                    # 对于流式响应，需要先读取内容才能访问text属性
+                    error_content = await response.aread()
+                    error_text = error_content.decode('utf-8') if error_content else ''
+                    logger.error(f"AI API调用失败: {response.status_code} - {error_text}")
                     yield f"AI服务暂时不可用: {response.status_code}"
                     return
                 
@@ -405,15 +432,15 @@ class AIService:
 
 
 # 全局AI服务实例
-_ai_service_instance = None
+_ai_service_instances = {}
 
 
-def get_ai_service(api_url: Optional[str] = None, api_key: Optional[str] = None, 
-                   model: Optional[str] = None, system_prompt: Optional[str] = None) -> AIService:
+def get_ai_service(service_type: str = "web") -> AIService:
     """
     获取全局AI服务实例
     
     Args:
+        service_type: 服务类型，'web'表示页面问答，'wechat'表示公众号问答
         api_url: API基础URL
         api_key: API密钥
         model: 模型名称
@@ -422,9 +449,59 @@ def get_ai_service(api_url: Optional[str] = None, api_key: Optional[str] = None,
     Returns:
         AI服务实例
     """
-    global _ai_service_instance
+    global _ai_service_instances
     
-    if _ai_service_instance is None:
-        _ai_service_instance = AIService(api_url=api_url, api_key=api_key, model=model, system_prompt=system_prompt)
+    # 确保服务类型字典存在
+    if service_type not in _ai_service_instances:
+        _ai_service_instances[service_type] = {}
     
-    return _ai_service_instance
+    # 创建服务类型标识符
+    service_key = f"{service_type}_0"
+    # 检查是否已存在相同配置的实例
+    if service_key not in _ai_service_instances[service_type]:
+        _ai_service_instances[service_type][service_key] = AIService(
+            service_type=service_type, 
+            api_url=os.getenv(f'{service_type.upper()}_API_URL'), 
+            api_key=os.getenv(f'{service_type.upper()}_API_KEY'), 
+            model=os.getenv(f'{service_type.upper()}_MODEL'), 
+            system_prompt=os.getenv(f'{service_type.upper()}_SYSTEM_PROMPT')
+        )
+    
+    return _ai_service_instances[service_type][service_key]
+
+def set_ai_service(service_type: str = "web", api_url: Optional[str] = None, api_key: Optional[str] = None, 
+                   model: Optional[str] = None, system_prompt: Optional[str] = None) -> bool:
+    """
+    配置AI服务
+    
+    Args:
+        service_type: 服务类型，'web'表示页面问答，'wechat'表示公众号问答
+        api_url: API基础URL
+        api_key: API密钥
+        model: 模型名称
+        system_prompt: 系统提示词
+        
+    Returns:
+        是否保存成功
+    """
+    global _ai_service_instances
+
+    # 确保服务类型字典存在
+    if service_type not in _ai_service_instances:
+        _ai_service_instances[service_type] = {}
+    
+    # 创建服务类型标识符
+    #service_key = f"{service_type}_{hash((api_url, api_key, model, system_prompt))}"
+    service_key = f"{service_type}_0"
+    try:
+        _ai_service_instances[service_type][service_key] = AIService(
+                service_type=service_type, 
+                api_url=api_url, 
+                api_key=api_key, 
+                model=model, 
+                system_prompt=system_prompt
+        )
+    except Exception as e:
+        logger.error(f"设置AI服务失败: {e}")
+        return False
+    return True
