@@ -4,6 +4,7 @@
 import os
 import json
 import logging
+import asyncio
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
 from datetime import datetime
@@ -110,7 +111,9 @@ class StorageManager:
             self.remote_enabled = False
     
     def _start_scheduled_sync(self):
-        """启动定时同步任务"""
+        """
+        启动定时同步任务
+        """
         if not self.remote_enabled or not self.sync_cron:
             return
         
@@ -121,9 +124,17 @@ class StorageManager:
             # 创建调度器
             self.scheduler = BackgroundScheduler()
             
+            # 定义同步任务的包装函数，将异步函数转换为同步函数
+            def sync_from_remote_wrapper():
+                # 创建新的事件循环并运行异步任务
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                loop.run_until_complete(self.sync_from_remote())
+                loop.close()
+            
             # 添加定时任务
             self.scheduler.add_job(
-                self.sync_from_remote,
+                sync_from_remote_wrapper,
                 trigger=CronTrigger.from_crontab(self.sync_cron),
                 id='remote_sync_job',
                 name='Remote Storage Sync',
@@ -160,7 +171,9 @@ class StorageManager:
             self.data = {'media': [], 'static_pages': []}
     
     def _save_data(self):
-        """保存数据"""
+        """
+        保存数据
+        """
         db_dir = Path(self.db_file).parent
         db_dir.mkdir(parents=True, exist_ok=True)
         
@@ -170,7 +183,15 @@ class StorageManager:
             
             # 如果启用了远程存储且允许写入，将数据文件同步到S3
             if self.remote_enabled and self.s3_client and self.s3_write_enabled:
-                self._upload_to_s3(self.db_file, self._get_s3_key(self.db_file))
+                # 使用异步方式上传，但不阻塞主线程
+                async def upload_data_file():
+                    await self._upload_to_s3(self.db_file, self._get_s3_key(self.db_file))
+                
+                # 创建新的事件循环并运行异步任务
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                loop.run_until_complete(upload_data_file())
+                loop.close()
             elif self.remote_enabled and not self.s3_write_enabled:
                 logger.debug("S3写入功能已禁用，跳过文件上传")
         except Exception as e:
@@ -185,8 +206,10 @@ class StorageManager:
         key_parts.append(relative_path.replace('\\', '/'))
         return '/'.join(key_parts)
     
-    def _upload_to_s3(self, file_path: str, s3_key: str) -> bool:
-        """上传文件到S3存储"""
+    async def _upload_to_s3(self, file_path: str, s3_key: str) -> bool:
+        """
+        上传文件到S3存储，支持异步操作和重试机制
+        """
         if not self.s3_client or not os.path.exists(file_path):
             return False
         
@@ -195,40 +218,66 @@ class StorageManager:
             logger.debug(f"S3写入功能已禁用，跳过文件上传: {s3_key}")
             return False
         
-        try:
-            self.s3_client.upload_file(
-                Filename=file_path,
-                Bucket=self.s3_bucket_name,
-                Key=s3_key
-            )
-            logger.info(f"文件上传到S3成功: {s3_key}")
-            return True
-        except Exception as e:
-            logger.error(f"文件上传到S3失败: {s3_key}, 错误: {e}")
-            return False
+        # 重试机制：每间隔5秒重试2次
+        max_retries = 2
+        retry_interval = 5
+        
+        for attempt in range(max_retries + 1):
+            try:
+                # 使用同步客户端的上传方法，通过asyncio.to_thread转换为异步
+                await asyncio.to_thread(
+                    self.s3_client.upload_file,
+                    Filename=file_path,
+                    Bucket=self.s3_bucket_name,
+                    Key=s3_key
+                )
+                logger.info(f"文件上传到S3成功: {s3_key}")
+                return True
+            except Exception as e:
+                if attempt < max_retries:
+                    logger.warning(f"文件上传到S3失败，尝试 {attempt + 1}/{max_retries + 1}: {s3_key}, 错误: {e}")
+                    await asyncio.sleep(retry_interval)
+                else:
+                    logger.error(f"文件上传到S3失败，已达到最大重试次数: {s3_key}, 错误: {e}")
+                    return False
     
-    def _download_from_s3(self, s3_key: str, file_path: str) -> bool:
-        """从S3存储下载文件"""
+    async def _download_from_s3(self, s3_key: str, file_path: str) -> bool:
+        """
+        从S3存储下载文件，支持异步操作和重试机制
+        """
         if not self.s3_client:
             return False
         
-        try:
-            # 确保目录存在
-            os.makedirs(os.path.dirname(file_path), exist_ok=True)
-            
-            self.s3_client.download_file(
-                Bucket=self.s3_bucket_name,
-                Key=s3_key,
-                Filename=file_path
-            )
-            logger.info(f"从S3下载文件成功: {s3_key} -> {file_path}")
-            return True
-        except Exception as e:
-            logger.error(f"从S3下载文件失败: {s3_key}, 错误: {e}")
-            return False
+        # 重试机制：每间隔5秒重试2次
+        max_retries = 2
+        retry_interval = 5
+        
+        for attempt in range(max_retries + 1):
+            try:
+                # 确保目录存在
+                os.makedirs(os.path.dirname(file_path), exist_ok=True)
+                
+                # 使用同步客户端的下载方法，通过asyncio.to_thread转换为异步
+                await asyncio.to_thread(
+                    self.s3_client.download_file,
+                    Bucket=self.s3_bucket_name,
+                    Key=s3_key,
+                    Filename=file_path
+                )
+                logger.info(f"从S3下载文件成功: {s3_key} -> {file_path}")
+                return True
+            except Exception as e:
+                if attempt < max_retries:
+                    logger.warning(f"从S3下载文件失败，尝试 {attempt + 1}/{max_retries + 1}: {s3_key}, 错误: {e}")
+                    await asyncio.sleep(retry_interval)
+                else:
+                    logger.error(f"从S3下载文件失败，已达到最大重试次数: {s3_key}, 错误: {e}")
+                    return False
     
-    def _delete_from_s3(self, s3_key: str) -> bool:
-        """从S3存储删除文件"""
+    async def _delete_from_s3(self, s3_key: str) -> bool:
+        """
+        从S3存储删除文件，支持异步操作和重试机制
+        """
         if not self.s3_client:
             return False
         
@@ -237,66 +286,105 @@ class StorageManager:
             logger.debug(f"S3写入功能已禁用，跳过文件删除: {s3_key}")
             return False
         
-        try:
-            self.s3_client.delete_object(
-                Bucket=self.s3_bucket_name,
-                Key=s3_key
-            )
-            logger.info(f"从S3删除文件成功: {s3_key}")
-            return True
-        except Exception as e:
-            logger.error(f"从S3删除文件失败: {s3_key}, 错误: {e}")
-            return False
+        # 重试机制：每间隔5秒重试2次
+        max_retries = 2
+        retry_interval = 5
+        
+        for attempt in range(max_retries + 1):
+            try:
+                # 使用同步客户端的删除方法，通过asyncio.to_thread转换为异步
+                await asyncio.to_thread(
+                    self.s3_client.delete_object,
+                    Bucket=self.s3_bucket_name,
+                    Key=s3_key
+                )
+                logger.info(f"从S3删除文件成功: {s3_key}")
+                return True
+            except Exception as e:
+                if attempt < max_retries:
+                    logger.warning(f"从S3删除文件失败，尝试 {attempt + 1}/{max_retries + 1}: {s3_key}, 错误: {e}")
+                    await asyncio.sleep(retry_interval)
+                else:
+                    logger.error(f"从S3删除文件失败，已达到最大重试次数: {s3_key}, 错误: {e}")
+                    return False
     
-    def _list_s3_objects(self, prefix: str = '') -> List[str]:
-        """列出S3存储中的对象"""
+    async def _list_s3_objects(self, prefix: str = '') -> List[str]:
+        """
+        列出S3存储中的对象，支持异步操作和重试机制
+        """
         if not self.s3_client:
             return []
         
-        try:
-            response = self.s3_client.list_objects_v2(
-                Bucket=self.s3_bucket_name,
-                Prefix=prefix
-            )
-            
-            objects = []
-            if 'Contents' in response:
-                objects = [obj['Key'] for obj in response['Contents']]
-            
-            logger.info(f"从S3列出对象成功，找到 {len(objects)} 个对象")
-            return objects
-        except Exception as e:
-            logger.error(f"从S3列出对象失败: {e}")
-            return []
+        # 重试机制：每间隔5秒重试2次
+        max_retries = 2
+        retry_interval = 5
+        
+        for attempt in range(max_retries + 1):
+            try:
+                # 使用同步客户端的list_objects_v2方法，通过asyncio.to_thread转换为异步
+                response = await asyncio.to_thread(
+                    self.s3_client.list_objects_v2,
+                    Bucket=self.s3_bucket_name,
+                    Prefix=prefix
+                )
+                
+                objects = []
+                if 'Contents' in response:
+                    objects = [obj['Key'] for obj in response['Contents']]
+                
+                logger.info(f"从S3列出对象成功，找到 {len(objects)} 个对象")
+                return objects
+            except Exception as e:
+                if attempt < max_retries:
+                    logger.warning(f"从S3列出对象失败，尝试 {attempt + 1}/{max_retries + 1}: 错误: {e}")
+                    await asyncio.sleep(retry_interval)
+                else:
+                    logger.error(f"从S3列出对象失败，已达到最大重试次数: 错误: {e}")
+                    return []
     
-    def _get_s3_object_info(self, s3_key: str) -> Optional[Dict[str, Any]]:
-        """获取S3对象的元信息"""
+    async def _get_s3_object_info(self, s3_key: str) -> Optional[Dict[str, Any]]:
+        """
+        获取S3对象的元信息，支持异步操作和重试机制
+        """
         if not self.s3_client:
             return None
         
-        try:
-            response = self.s3_client.head_object(
-                Bucket=self.s3_bucket_name,
-                Key=s3_key
-            )
-            
-            return {
-                'last_modified': response['LastModified'],
-                'content_length': response['ContentLength'],
-                'content_type': response.get('ContentType', '')
-            }
-        except Exception as e:
-            logger.error(f"获取S3对象信息失败: {s3_key}, 错误: {e}")
-            return None
+        # 重试机制：每间隔5秒重试2次
+        max_retries = 2
+        retry_interval = 5
+        
+        for attempt in range(max_retries + 1):
+            try:
+                # 使用同步客户端的head_object方法，通过asyncio.to_thread转换为异步
+                response = await asyncio.to_thread(
+                    self.s3_client.head_object,
+                    Bucket=self.s3_bucket_name,
+                    Key=s3_key
+                )
+                
+                return {
+                    'last_modified': response['LastModified'],
+                    'content_length': response['ContentLength'],
+                    'content_type': response.get('ContentType', '')
+                }
+            except Exception as e:
+                if attempt < max_retries:
+                    logger.warning(f"获取S3对象信息失败，尝试 {attempt + 1}/{max_retries + 1}: {s3_key}, 错误: {e}")
+                    await asyncio.sleep(retry_interval)
+                else:
+                    logger.error(f"获取S3对象信息失败，已达到最大重试次数: {s3_key}, 错误: {e}")
+                    return None
     
-    def sync_from_remote(self) -> Dict[str, Any]:
-        """从远程S3存储同步文件到本地"""
+    async def sync_from_remote(self) -> Dict[str, Any]:
+        """
+        从远程S3存储同步文件到本地，支持异步操作
+        """
         if not self.remote_enabled or not self.s3_client:
             return {'status': 'error', 'message': '远程存储未启用'}
         
         try:
             # 列出S3中的所有对象
-            s3_objects = self._list_s3_objects(self.s3_path_prefix)
+            s3_objects = await self._list_s3_objects(self.s3_path_prefix)
             
             sync_count = 0
             override_count = 0
@@ -323,11 +411,11 @@ class StorageManager:
                         # 将local_mtime转换为带时区的datetime对象（UTC）
                         from datetime import timezone
                         local_mtime = local_mtime.replace(tzinfo=timezone.utc)
-                        s3_obj_info = self._get_s3_object_info(s3_key)
+                        s3_obj_info = await self._get_s3_object_info(s3_key)
                         
                         if s3_obj_info and s3_obj_info['last_modified'] > local_mtime:
                             # S3文件更新，覆盖本地文件
-                            if self._download_from_s3(s3_key, local_file_path):
+                            if await self._download_from_s3(s3_key, local_file_path):
                                 sync_count += 1
                                 override_count += 1
                                 logger.info(f"同步并覆盖本地文件: {local_file_path}")
@@ -335,7 +423,7 @@ class StorageManager:
                         logger.info(f"本地文件已存在，跳过同步: {local_file_path}")
                 else:
                     # 本地文件不存在，下载
-                    if self._download_from_s3(s3_key, local_file_path):
+                    if await self._download_from_s3(s3_key, local_file_path):
                         sync_count += 1
                         logger.info(f"从S3下载新文件: {local_file_path}")
             
@@ -353,8 +441,10 @@ class StorageManager:
             logger.error(f"从远程同步文件失败: {e}")
             return {'status': 'error', 'message': str(e)}
     
-    def sync_to_remote(self) -> Dict[str, Any]:
-        """将本地文件同步到远程S3存储"""
+    async def sync_to_remote(self) -> Dict[str, Any]:
+        """
+        将本地文件同步到远程S3存储，支持异步操作
+        """
         if not self.remote_enabled or not self.s3_client:
             return {'status': 'error', 'message': '远程存储未启用'}
         
@@ -382,7 +472,7 @@ class StorageManager:
                     s3_key = self._get_s3_key(local_file_path)
                     
                     # 上传文件到S3
-                    if self._upload_to_s3(local_file_path, s3_key):
+                    if await self._upload_to_s3(local_file_path, s3_key):
                         sync_count += 1
             
             return {
@@ -601,7 +691,16 @@ class StorageManager:
             filepath = page_info.get('filepath')
             if filepath and os.path.exists(filepath):
                 s3_key = self._get_s3_key(filepath)
-                self._upload_to_s3(filepath, s3_key)
+                
+                # 使用异步方式上传，但不阻塞主线程
+                async def upload_static_page():
+                    await self._upload_to_s3(filepath, s3_key)
+                
+                # 创建新的事件循环并运行异步任务
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                loop.run_until_complete(upload_static_page())
+                loop.close()
         elif self.remote_enabled and not self.s3_write_enabled:
             logger.debug("S3写入功能已禁用，跳过静态页面文件上传")
 
@@ -660,12 +759,20 @@ class StorageManager:
                 if self.remote_enabled and self.s3_client and self.s3_write_enabled:
                     if filepath:
                         s3_key = self._get_s3_key(filepath)
-                        self._delete_from_s3(s3_key)
                     else:
                         # 如果没有filepath，构建默认路径
                         default_filepath = os.path.join(os.getcwd(), 'data', 'static_pages', filename)
                         s3_key = self._get_s3_key(default_filepath)
-                        self._delete_from_s3(s3_key)
+                    
+                    # 使用异步方式删除，但不阻塞主线程
+                    async def delete_from_s3_async():
+                        await self._delete_from_s3(s3_key)
+                    
+                    # 创建新的事件循环并运行异步任务
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    loop.run_until_complete(delete_from_s3_async())
+                    loop.close()
                 elif self.remote_enabled and not self.s3_write_enabled:
                     logger.debug("S3写入功能已禁用，跳过S3文件删除")
                 
