@@ -187,11 +187,23 @@ class StorageManager:
                 async def upload_data_file():
                     await self._upload_to_s3(self.db_file, self._get_s3_key(self.db_file))
                 
-                # 创建新的事件循环并运行异步任务
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                loop.run_until_complete(upload_data_file())
-                loop.close()
+                try:
+                    # 检查当前线程是否已经有一个运行中的事件循环
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        # 如果已经有运行中的事件循环，使用create_task将异步任务添加到现有循环中
+                        loop.create_task(upload_data_file())
+                    else:
+                        # 如果没有运行中的事件循环，创建新的事件循环并运行
+                        loop.run_until_complete(upload_data_file())
+                except RuntimeError:
+                    # 如果获取事件循环失败，创建新的事件循环
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    try:
+                        loop.run_until_complete(upload_data_file())
+                    finally:
+                        loop.close()
             elif self.remote_enabled and not self.s3_write_enabled:
                 logger.debug("S3写入功能已禁用，跳过文件上传")
         except Exception as e:
@@ -696,11 +708,23 @@ class StorageManager:
                 async def upload_static_page():
                     await self._upload_to_s3(filepath, s3_key)
                 
-                # 创建新的事件循环并运行异步任务
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                loop.run_until_complete(upload_static_page())
-                loop.close()
+                try:
+                    # 检查当前线程是否已经有一个运行中的事件循环
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        # 如果已经有运行中的事件循环，使用create_task将异步任务添加到现有循环中
+                        loop.create_task(upload_static_page())
+                    else:
+                        # 如果没有运行中的事件循环，创建新的事件循环并运行
+                        loop.run_until_complete(upload_static_page())
+                except RuntimeError:
+                    # 如果获取事件循环失败，创建新的事件循环
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    try:
+                        loop.run_until_complete(upload_static_page())
+                    finally:
+                        loop.close()
         elif self.remote_enabled and not self.s3_write_enabled:
             logger.debug("S3写入功能已禁用，跳过静态页面文件上传")
 
@@ -768,11 +792,23 @@ class StorageManager:
                     async def delete_from_s3_async():
                         await self._delete_from_s3(s3_key)
                     
-                    # 创建新的事件循环并运行异步任务
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    loop.run_until_complete(delete_from_s3_async())
-                    loop.close()
+                    try:
+                        # 检查当前线程是否已经有一个运行中的事件循环
+                        loop = asyncio.get_event_loop()
+                        if loop.is_running():
+                            # 如果已经有运行中的事件循环，使用create_task将异步任务添加到现有循环中
+                            loop.create_task(delete_from_s3_async())
+                        else:
+                            # 如果没有运行中的事件循环，创建新的事件循环并运行
+                            loop.run_until_complete(delete_from_s3_async())
+                    except RuntimeError:
+                        # 如果获取事件循环失败，创建新的事件循环
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                        try:
+                            loop.run_until_complete(delete_from_s3_async())
+                        finally:
+                            loop.close()
                 elif self.remote_enabled and not self.s3_write_enabled:
                     logger.debug("S3写入功能已禁用，跳过S3文件删除")
                 
