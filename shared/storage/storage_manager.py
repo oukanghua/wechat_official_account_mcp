@@ -19,6 +19,15 @@ logger = logging.getLogger(__name__)
 class StorageManager:
     """存储管理器 - 支持本地存储和S3兼容存储"""
     
+    # 单例模式实现
+    _instance = None
+    _initialized = False
+    
+    def __new__(cls, db_file: str = "data/storage.db"):
+        if cls._instance is None:
+            cls._instance = super(StorageManager, cls).__new__(cls)
+        return cls._instance
+    
     def __init__(self, db_file: str = "data/storage.db"):
         """
         初始化存储管理器
@@ -26,6 +35,10 @@ class StorageManager:
         Args:
             db_file: 数据库文件路径（使用 JSON 文件存储）
         """
+        # 防止重复初始化
+        if self._initialized:
+            return
+        
         self.db_file = db_file
         self.data: Dict[str, Any] = {
             'media': [],  # 素材列表
@@ -45,6 +58,9 @@ class StorageManager:
         
         # 启动验证码清理定时任务（如果配置了）
         self._start_verification_code_cleanup()
+        
+        # 标记为已初始化
+        self._initialized = True
     
     def _init_s3_config(self):
         """初始化S3相关配置"""

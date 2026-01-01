@@ -433,13 +433,13 @@ async def static_page(action: str = None, html_content: str = None, filename: st
     return await handle_wechat_tool("static_page", arguments)
 
 @mcp.tool()
-async def user_verification_code(action: str = "generate", custom_code: str = None) -> str:
-    """用户验证码管理工具，生成和验证用户验证码
+async def user_verification_code(action: str = None, custom_code: str = None) -> str:
+    """管理用户验证码（生成、验证、清理）
 
     Args:
-        action: 操作类型 (generate - 生成验证码, validate - 验证验证码, cleanup - 清理过期验证码)
-        custom_code: 自定义验证码（generate操作时可选，需要8位英文单词和数字组合）
-        
+        action: 操作类型 (generate, validate, cleanup)
+        custom_code: 自定义验证码（generate操作时可选，validate操作时必需）
+
     Returns:
         操作结果文本
         
@@ -456,11 +456,11 @@ async def user_verification_code(action: str = "generate", custom_code: str = No
         >>> # 清理过期验证码
         >>> await user_verification_code(action="cleanup")
     """
+    global storage_manager
     try:
-        from shared.storage.storage_manager import StorageManager
-        
-        # 初始化存储管理器
-        storage_manager = StorageManager()
+        # 确保存储管理器已初始化
+        if not initialize_managers():
+            return "初始化失败：无法初始化存储管理器"
         
         if action == "generate":
             return await generate_verification_code(storage_manager, custom_code)
@@ -574,17 +574,17 @@ async def storage_sync(direction: str = "from_remote") -> str:
         >>> # 从本地同步到远程S3存储
         >>> await storage_sync(direction="to_remote")
     """
+    global storage_manager
     try:
-        from shared.storage.storage_manager import StorageManager
-        
-        # 初始化存储管理器
-        storage_manager = StorageManager()
+        # 确保存储管理器已初始化
+        if not initialize_managers():
+            return "初始化失败：无法初始化存储管理器"
         
         # 执行同步操作
         if direction == "from_remote":
-            result = storage_manager.sync_from_remote()
+            result = await storage_manager.sync_from_remote()
         elif direction == "to_remote":
-            result = storage_manager.sync_to_remote()
+            result = await storage_manager.sync_to_remote()
         else:
             return f"错误：无效的同步方向 '{direction}'，支持的方向：from_remote, to_remote"
         
