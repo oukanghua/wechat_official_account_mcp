@@ -1409,8 +1409,74 @@
             is_configured: false
         };
         
+        // DOM 元素引用（提前定义）
+        let configPanel = null;
+        
+        // 切换配置面板（提前定义，防止onclick报错）
+        function toggleConfigPanel() {
+            if (!configPanel) {
+                configPanel = document.getElementById('configPanel');
+            }
+            if (configPanel) {
+                configPanel.classList.toggle('open');
+            }
+        }
+        
         // 密码验证状态
         let passwordValidated = false;
+        // 保存加密信息供后续使用
+        let validatedPasswordInfo = null;
+        
+        // 从 localStorage 恢复密码验证状态（7天有效）
+        function loadPasswordValidation() {
+            try {
+                const stored = localStorage.getItem('chatPasswordValidation');
+                if (stored) {
+                    const data = JSON.parse(stored);
+                    const now = Date.now();
+                    // 检查是否过期（7天 = 7 * 24 * 60 * 60 * 1000毫秒）
+                    if (data.expiresAt && data.expiresAt > now) {
+                        validatedPasswordInfo = [data.encryptedPassword, data.salt];
+                        passwordValidated = true;
+                        console.log('已从本地存储恢复密码验证状态');
+                        return true;
+                    } else {
+                        // 已过期，清除存储
+                        localStorage.removeItem('chatPasswordValidation');
+                        console.log('密码验证已过期');
+                    }
+                }
+            } catch (e) {
+                console.error('加载密码验证状态失败:', e);
+            }
+            return false;
+        }
+        
+        // 保存密码验证状态到 localStorage
+        function savePasswordValidation(encryptedPassword, salt) {
+            try {
+                const expiresAt = Date.now() + (7 * 24 * 60 * 60 * 1000); // 7天后过期
+                const data = {
+                    encryptedPassword: encryptedPassword,
+                    salt: salt,
+                    expiresAt: expiresAt
+                };
+                localStorage.setItem('chatPasswordValidation', JSON.stringify(data));
+                console.log('密码验证状态已保存到本地存储');
+            } catch (e) {
+                console.error('保存密码验证状态失败:', e);
+            }
+        }
+        
+        // 清除密码验证状态
+        function clearPasswordValidation() {
+            passwordValidated = false;
+            validatedPasswordInfo = null;
+            localStorage.removeItem('chatPasswordValidation');
+            // 显示密码输入区域，隐藏配置表单
+            document.getElementById('passwordSection').style.display = 'block';
+            document.getElementById('configForm').style.display = 'none';
+        }
         
         // 验证码验证状态
         let verificationValidated = false;
@@ -1476,7 +1542,6 @@
         const messageInput = document.getElementById('messageInput');
         const sendButton = document.getElementById('sendButton');
         const loadingIndicator = document.getElementById('loadingIndicator');
-        const configPanel = document.getElementById('configPanel');
         const configStatus = document.getElementById('configStatus');
         const configForm = document.getElementById('configForm');
 
@@ -1498,6 +1563,13 @@
             
             // 初始化验证码状态
             updateVerificationStatus();
+            
+            // 页面加载时恢复密码验证状态
+            if (loadPasswordValidation()) {
+                // 如果密码已验证，隐藏密码输入区域并显示配置表单
+                document.getElementById('passwordSection').style.display = 'none';
+                document.getElementById('configForm').style.display = 'flex';
+            }
             
             // 页面加载时检查验证码状态，如果未验证则显示遮罩层
             if (!verificationValidated) {
@@ -2096,11 +2168,6 @@
             chatMessages.scrollTop = chatMessages.scrollHeight;
         }
 
-        // 切换配置面板
-        function toggleConfigPanel() {
-            configPanel.classList.toggle('open');
-        }
-
         // 加载配置
         async function loadConfig() {
             try {
@@ -2140,9 +2207,6 @@
             }
         }
 
-        // 保存验证后的加密密码和盐
-        let validatedPasswordInfo = null;
-        
         // 处理配置表单提交
         async function handleConfigSubmit(e) {
             e.preventDefault();
@@ -2384,6 +2448,8 @@
                     passwordValidated = true;
                     // 保存加密密码和盐信息
                     validatedPasswordInfo = [encryptedPassword, salt];
+                    // 保存到 localStorage（7天有效）
+                    savePasswordValidation(encryptedPassword, salt);
                     document.getElementById('passwordSection').style.display = 'none';
                     document.getElementById('configForm').style.display = 'flex';
                     passwordInput.value = ''; // 清除密码输入

@@ -60,3 +60,4 @@ dist/
 # Flask
 instance/
 .webassets-cache
+tests/
