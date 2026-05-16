@@ -61,3 +61,4 @@ dist/
 instance/
 .webassets-cache
 tests/
+data/auth_config.json
