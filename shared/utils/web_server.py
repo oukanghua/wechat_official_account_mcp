@@ -284,8 +284,12 @@ class StaticPageServer:
         # 使用WECHAT_MSG_SERVER_PORT作为统一端口
         self.port = int(os.getenv('WECHAT_MSG_SERVER_PORT', str(port)))
         
-        # 确保页面目录存在
-        Path(self.pages_dir).mkdir(parents=True, exist_ok=True)
+        # 确保页面目录存在（在 Vercel 等只读文件系统中跳过）
+        if not os.getenv('VERCEL'):
+            try:
+                Path(self.pages_dir).mkdir(parents=True, exist_ok=True)
+            except OSError as e:
+                logger.warning(f"无法创建页面目录 {self.pages_dir}: {e}")
         
         # 创建Flask应用实例
         self.app = Flask(__name__)
