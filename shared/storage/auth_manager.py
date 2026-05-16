@@ -85,6 +85,11 @@ class AuthManager:
     
     def _save_config(self):
         """保存配置"""
+        # 检查是否在只读环境中（如 Vercel Serverless）
+        if os.getenv('VERCEL') or os.getenv('SERVERLESS'):
+            logger.info("运行在 Serverless 环境中，跳过配置文件保存")
+            return
+        
         config_dir = Path(self.config_file).parent
         config_dir.mkdir(parents=True, exist_ok=True)
         
@@ -94,6 +99,12 @@ class AuthManager:
                     'config': self.config,
                     'token_cache': self.token_cache
                 }, f, ensure_ascii=False, indent=2)
+        except OSError as e:
+            # 文件系统只读，记录警告并继续
+            if e.errno == 30:  # Read-only file system
+                logger.warning("文件系统只读，无法保存配置")
+            else:
+                logger.error(f"保存配置失败: {e}")
         except Exception as e:
             logger.error(f"保存配置失败: {e}")
     
