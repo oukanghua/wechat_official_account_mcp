@@ -79,13 +79,7 @@ class StaticPageManager:
             storage_manager: 外部传入的存储管理器实例（可选）
         """
         self.storage_dir = Path(storage_dir)
-        
-        # 在 Vercel 等只读文件系统中跳过目录创建
-        if not os.getenv('VERCEL'):
-            try:
-                self.storage_dir.mkdir(parents=True, exist_ok=True)
-            except OSError as e:
-                logger.warning(f"无法创建存储目录 {storage_dir}: {e}")
+        self.storage_dir.mkdir(parents=True, exist_ok=True)
         
         # 使用外部传入的存储管理器实例，否则创建新实例
         if storage_manager:
@@ -107,40 +101,6 @@ class StaticPageManager:
                 logger.error(f"加载元数据失败: {e}")
                 return {}
         return {}
-    
-    def _save_to_storage(self, filename: str, content: str) -> bool:
-        """
-        保存文件到存储（根据环境选择本地或S3）
-        
-        Args:
-            filename: 文件名
-            content: 文件内容
-            
-        Returns:
-            是否保存成功
-        """
-        # 检查是否启用远程存储
-        if os.getenv('STORAGE_REMOTE_ENABLE', 'false').lower() == 'true':
-            # 使用 S3 存储
-            try:
-                return self._save_to_s3(filename, content)
-            except Exception as e:
-                logger.error(f"S3存储失败: {e}")
-                return False
-        else:
-            # 本地存储
-            if os.getenv('VERCEL'):
-                logger.error("Vercel环境不支持本地存储，请启用S3存储")
-                return False
-            
-            try:
-                file_path = self.storage_dir / filename
-                with open(file_path, 'w', encoding='utf-8') as f:
-                    f.write(content)
-                return True
-            except Exception as e:
-                logger.error(f"本地存储失败: {e}")
-                return False
     
     def _save_metadata(self):
         """保存元数据"""
@@ -206,12 +166,7 @@ class StaticPageManager:
             if type == 'other':
                 # other类型：使用data/files目录，保留原扩展名
                 storage_dir = Path("data/files")
-                # 在 Vercel 等只读文件系统中跳过目录创建
-                if not os.getenv('VERCEL'):
-                    try:
-                        storage_dir.mkdir(parents=True, exist_ok=True)
-                    except OSError as e:
-                        logger.warning(f"无法创建存储目录 {storage_dir}: {e}")
+                storage_dir.mkdir(parents=True, exist_ok=True)
                 
                 # 生成文件名
                 if custom_filename:
