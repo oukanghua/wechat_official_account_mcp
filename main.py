@@ -29,6 +29,27 @@ def main():
         env_file = script_dir / '.env'
         if env_file.exists():
             load_dotenv(env_file)
+        
+        # 从环境变量获取日志级别
+        log_level_str = os.getenv('LOG_LEVEL', 'INFO').upper()
+        log_level_map = {
+            'DEBUG': logging.DEBUG,
+            'INFO': logging.INFO,
+            'WARNING': logging.WARNING,
+            'ERROR': logging.ERROR
+        }
+        log_level = log_level_map.get(log_level_str, logging.INFO)
+        
+        # 重新配置日志级别
+        logging.basicConfig(
+            level=log_level,
+            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+            handlers=[logging.StreamHandler(sys.stderr)],
+            force=True  # 强制重新配置
+        )
+        logger = logging.getLogger(__name__)
+        
+        if env_file.exists():
             logger.info(f"已加载环境变量文件: {env_file}")
         else:
             logger.warning(f"未找到环境变量文件，可能已在宿主机加载: {env_file}")
@@ -44,12 +65,13 @@ def main():
         # 配置日志到文件
         log_file = logs_dir / 'mcp_server.log'
         file_handler = logging.FileHandler(log_file, encoding='utf-8')
-        file_handler.setLevel(logging.INFO)
+        file_handler.setLevel(log_level)
         file_handler.setFormatter(logging.Formatter(
             '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
         ))
         logging.getLogger().addHandler(file_handler)
         
+        logger.info(f"日志级别设置为: {log_level_str}")
         logger.info("微信公众号 MCP 服务器启动中...")
         
         # 检查微信消息服务器启动开关

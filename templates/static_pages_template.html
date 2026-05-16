@@ -187,11 +187,19 @@
         .page-delete:hover { background-color: #c0392b; }
         
         /* 分页 */
-        .pagination { display: flex; justify-content: center; align-items: center; gap: 5px; margin-top: 20px; padding: 20px; background: white; border-radius: 12px; box-shadow: 0 8px 32px rgba(0,0,0,0.1); }
+        .pagination { display: flex; justify-content: center; align-items: center; gap: 5px; margin-top: 20px; padding: 20px; background: white; border-radius: 12px; box-shadow: 0 8px 32px rgba(0,0,0,0.1); flex-wrap: wrap; }
         .page-btn { padding: 8px 16px; border-radius: 6px; text-decoration: none; color: #3498db; border: 1px solid #ddd; background: white; font-weight: 500; transition: all 0.2s ease; cursor: pointer; }
         .page-btn:hover:not(.disabled):not(.current) { background-color: #f8f9fa; border-color: #3498db; }
         .page-btn.current { background-color: #3498db; color: white; border-color: #3498db; }
         .page-btn.disabled { opacity: 0.5; cursor: not-allowed; }
+        .page-btn.ellipsis { border: none; cursor: default; color: #999; }
+        
+        /* 页码跳转 */
+        .page-jump { display: flex; align-items: center; gap: 8px; margin-left: 10px; padding-left: 10px; border-left: 1px solid #eee; }
+        .jump-input { width: 60px; padding: 8px 10px; border: 1px solid #ddd; border-radius: 6px; text-align: center; font-size: 14px; outline: none; transition: border-color 0.2s; }
+        .jump-input:focus { border-color: #3498db; }
+        .jump-btn { padding: 8px 16px; border: none; border-radius: 6px; background-color: #3498db; color: white; font-weight: 500; cursor: pointer; transition: background-color 0.2s; }
+        .jump-btn:hover { background-color: #2980b9; }
         
         /* 响应式设计 */
         @media (max-width: 768px) {
@@ -266,7 +274,7 @@
                 <div class="actions-bar">
                     <div class="admin-buttons">
                         <button class="btn btn-primary" onclick="refreshFileList()">🗘 刷新</button>
-                        <button class="btn btn-secondary" onclick="openPasswordModal()">⚙️ 管理</button>
+                        <button id="adminButton" class="btn btn-secondary" onclick="openPasswordModal()">⚙️ 管理</button>
                     </div>
                 </div>
             </div>
@@ -331,6 +339,65 @@
     <script>
         // 密码验证状态
         let passwordValidated = false;
+        // 保存加密信息供后续使用
+        let savedEncryptedPassword = null;
+        let savedSalt = null;
+        
+        // 从 localStorage 恢复验证状态（7天有效）
+        function loadPasswordValidation() {
+            try {
+                const stored = localStorage.getItem('passwordValidation');
+                if (stored) {
+                    const data = JSON.parse(stored);
+                    const now = Date.now();
+                    // 检查是否过期（7天 = 7 * 24 * 60 * 60 * 1000毫秒）
+                    if (data.expiresAt && data.expiresAt > now) {
+                        savedEncryptedPassword = data.encryptedPassword;
+                        savedSalt = data.salt;
+                        passwordValidated = true;
+                        showDeleteButtons();
+                        console.log('已从本地存储恢复密码验证状态');
+                    } else {
+                        // 已过期，清除存储并隐藏删除按钮
+                        localStorage.removeItem('passwordValidation');
+                        hideDeleteButtons();
+                        console.log('密码验证已过期');
+                    }
+                } else {
+                    // 没有存储的验证状态，隐藏删除按钮
+                    hideDeleteButtons();
+                    console.log('没有找到存储的密码验证状态');
+                }
+            } catch (e) {
+                console.error('加载密码验证状态失败:', e);
+                hideDeleteButtons();
+            }
+        }
+        
+        // 保存密码验证状态到 localStorage
+        function savePasswordValidation(encryptedPassword, salt) {
+            try {
+                const expiresAt = Date.now() + (7 * 24 * 60 * 60 * 1000); // 7天后过期
+                const data = {
+                    encryptedPassword: encryptedPassword,
+                    salt: salt,
+                    expiresAt: expiresAt
+                };
+                localStorage.setItem('passwordValidation', JSON.stringify(data));
+                console.log('密码验证状态已保存');
+            } catch (e) {
+                console.error('保存密码验证状态失败:', e);
+            }
+        }
+        
+        // 清除密码验证状态
+        function clearPasswordValidation() {
+            passwordValidated = false;
+            savedEncryptedPassword = null;
+            savedSalt = null;
+            localStorage.removeItem('passwordValidation');
+            hideDeleteButtons();
+        }
         
         // 生成随机盐
         function generateSalt() {
@@ -341,6 +408,11 @@
             }
             return salt;
         }
+        
+        // 页面加载时恢复验证状态
+        document.addEventListener('DOMContentLoaded', function() {
+            loadPasswordValidation();
+        });
         
         // 刷新文件列表
         function refreshFileList() {
@@ -412,6 +484,11 @@
                 
                 if (result.success) {
                     passwordValidated = true;
+                    // 保存加密信息供后续使用
+                    savedEncryptedPassword = encryptedPassword;
+                    savedSalt = salt;
+                    // 保存到 localStorage（7天有效）
+                    savePasswordValidation(encryptedPassword, salt);
                     statusDiv.textContent = '密码验证成功！';
                     statusDiv.className = 'password-status success';
                     
@@ -440,6 +517,13 @@
             deleteButtons.forEach(button => {
                 button.style.display = 'inline-block';
             });
+            // 更新管理按钮为退出按钮
+            const adminButton = document.getElementById('adminButton');
+            if (adminButton) {
+                adminButton.textContent = '🚪 退出';
+                adminButton.onclick = clearPasswordValidation;
+                adminButton.className = 'btn btn-danger';
+            }
         }
         
         // 隐藏删除按钮（初始状态）
@@ -448,6 +532,13 @@
             deleteButtons.forEach(button => {
                 button.style.display = 'none';
             });
+            // 更新退出按钮为管理按钮
+            const adminButton = document.getElementById('adminButton');
+            if (adminButton) {
+                adminButton.textContent = '⚙️ 管理';
+                adminButton.onclick = openPasswordModal;
+                adminButton.className = 'btn btn-secondary';
+            }
         }
         
         // 删除文件
@@ -460,19 +551,21 @@
             if (confirm(`确定要删除文件 "${filename}" 吗？此操作不可恢复。`)) {
                 showMessage(`正在删除文件 ${filename}...`, 'success');
                 
-                // 获取密码（从输入框或内存中）
-                const password = document.getElementById('adminPassword').value.trim();
+                // 使用保存的加密信息（复用验证时的salt和md5）
+                if (!savedEncryptedPassword || !savedSalt) {
+                    // 如果没有保存的信息，提示用户重新验证
+                    showMessage('需要重新验证密码', 'error');
+                    passwordValidated = false;
+                    openPasswordModal();
+                    return;
+                }
                 
-                // 生成盐并使用 md5+salt 加密密码
-                const salt = generateSalt();
-                const encryptedPassword = md5(password + salt);
-                
-                // 发送删除请求
+                // 发送删除请求，使用保存的加密信息
                 fetch(`{{ context_path }}/api/static-page/delete?filename=${encodeURIComponent(filename)}`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        'X-Config-Password': `${encryptedPassword}:${salt}`
+                        'X-Config-Password': `${savedEncryptedPassword}:${savedSalt}`
                     }
                 })
                 .then(response => response.json())
@@ -505,12 +598,6 @@
                 messageDiv.style.display = 'none';
             }, 3000);
         }
-        
-        // 页面加载完成后初始化
-        document.addEventListener('DOMContentLoaded', function() {
-            // 初始隐藏删除按钮
-            hideDeleteButtons();
-        });
     </script>
 </body>
 </html>

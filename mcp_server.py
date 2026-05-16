@@ -737,6 +737,8 @@ async def get_phub_template() -> str:
         logger.error(f"加载模板失败: {e}")
         return f"加载模板失败: {str(e)}"
 
+
+
 def main():
     """主函数 - 同步入口点"""
     # 使用更健壮的事件循环处理方式

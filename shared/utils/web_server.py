@@ -188,23 +188,17 @@ def my_render_template(template_path: str, variables: Dict[str, Any]) -> str:
             
             return result
         
-        # 渲染顺序：先处理循环，再处理变量替换，最后处理条件判断
+        # 渲染顺序：先处理循环，再处理条件判断，最后处理变量替换
         # 1. 先处理循环
         html = re.sub(r'\{\%\s*for\s+(\w+)\s+in\s+([\w.]+)\s*\%\}(.*?)\{\%\s*endfor\s*\%\}', 
                      replace_for_loop, template, flags=re.DOTALL)
         
-        # 2. 处理模板级别的变量（非循环内的）
-        html = re.sub(r'\{\{\s*([\w.]+)\s*(?<![\w.])or(?![\w.])\s*([^}]+)\s*\}\}', replace_default_var, html)
-        html = re.sub(r'\{\{\s*([\w.]+)\s*\}\}', replace_regular_var, html)
-        
-        # 3. 处理条件判断（支持点表示法）
-        # 先处理有else的情况
+        # 2. 处理条件判断（支持点表示法）- 必须先于变量替换处理
         def replace_if_with_else(match):
             condition = match.group(1).strip()
             if_content = match.group(2)
             else_content = match.group(3)
             
-            # 处理点表示法的条件变量，例如 pagination_html
             try:
                 value = variables
                 for part in condition.split('.'):
@@ -218,20 +212,40 @@ def my_render_template(template_path: str, variables: Dict[str, Any]) -> str:
                     if value is None:
                         break
                 
-                # 检查值是否为真（非None、非空字符串、非空列表等）
                 if value:
                     return if_content
                 return else_content
             except (AttributeError, TypeError):
                 return else_content
         
-        # 处理有else的条件判断
+        def replace_if(match):
+            condition = match.group(1).strip()
+            if_content = match.group(2)
+            
+            try:
+                value = variables
+                for part in condition.split('.'):
+                    if isinstance(value, dict):
+                        value = value.get(part)
+                    else:
+                        value = getattr(value, part, None)
+                    if value is None:
+                        break
+                
+                if value:
+                    return if_content
+                return ""
+            except (AttributeError, TypeError):
+                return ""
+        
         html = re.sub(r'\{\%\s*if\s+([\w.]+)\s*\%\}(.*?)\{\%\s*else\s*\%\}(.*?)\{\%\s*endif\s*\%\}', 
                      replace_if_with_else, html, flags=re.DOTALL)
-        
-        # 处理没有else的条件判断
         html = re.sub(r'\{\%\s*if\s+([\w.]+)\s*\%\}(.*?)\{\%\s*endif\s*\%\}', 
                      replace_if, html, flags=re.DOTALL)
+        
+        # 3. 处理模板级别的变量（非循环内的）- 最后处理
+        html = re.sub(r'\{\{\s*([\w.]+)\s*(?<![\w.])or(?![\w.])\s*([^}]+)\s*\}\}', replace_default_var, html)
+        html = re.sub(r'\{\{\s*([\w.]+)\s*\}\}', replace_regular_var, html)
         
         return html
         
@@ -580,6 +594,7 @@ class StaticPageServer:
         try:
             # 从请求头获取密码
             password = request.headers.get('X-Config-Password')
+            logger.debug(f"收到密码验证请求，密码头: {password[:20] if password else 'None'}...")
             
             # 如果请求头中没有，尝试从请求体获取
             if not password:
@@ -601,24 +616,34 @@ class StaticPageServer:
             
             # 从环境变量获取配置密码
             openai_config_password = os.getenv('OPENAI_CONFIG_PASSWORD')
+            logger.debug(f"环境变量密码配置存在: {openai_config_password is not None}")
             
             # 验证密码
             if not openai_config_password:
+                logger.warning("环境变量中未配置密码")
                 return False
             
             # 支持两种验证方式：明文和md5+盐
             if password == openai_config_password:
                 # 明文验证（向后兼容）
+                logger.debug("密码验证成功：明文匹配")
                 return True
             elif password and ':' in password:
                 # md5+盐验证（格式：encrypted_password:salt）
                 import hashlib
                 encrypted_password, salt = password.split(':', 1)
+                logger.debug(f"尝试md5+盐验证，salt长度: {len(salt)}")
                 if len(salt) >= 8:
                     # 使用相同的盐值对环境变量中的密码进行md5加密
                     expected_password = hashlib.md5(f"{openai_config_password}{salt}".encode('utf-8')).hexdigest()
-                    return encrypted_password == expected_password
+                    logger.debug(f"期望密码: {expected_password}, 收到密码: {encrypted_password}")
+                    result = encrypted_password == expected_password
+                    logger.debug(f"md5验证结果: {result}")
+                    return result
+                else:
+                    logger.warning(f"salt长度不足8位: {len(salt)}")
             
+            logger.debug("密码验证失败")
             return False
         except Exception as e:
             logger.error(f"验证请求密码失败: {e}")
@@ -1371,6 +1396,8 @@ class StaticPageServer:
                 import logging
                 werkzeug_logger = logging.getLogger('werkzeug')
                 werkzeug_logger.setLevel(logging.ERROR)
+                # 设置模块日志级别为DEBUG，以便输出调试信息
+                logger.setLevel(logging.DEBUG)
                 # 启动Flask服务器
                 self.app.run(host=self.host, port=self.port, debug=False, use_reloader=False)
         except Exception as e:
@@ -1533,18 +1560,54 @@ class IntegratedStaticPageServer(StaticPageServer):
                 else:
                     pagination_html += "<span class='page-btn prev disabled'>上一页</span>"
                 
-                # 页码按钮
-                for i in range(1, total_pages + 1):
+                # 页码按钮 - 只显示前后3页（共7页）
+                max_visible = 7  # 前后3页 + 当前页 = 7页
+                start_page = max(1, page_num - 3)
+                end_page = min(total_pages, page_num + 3)
+                
+                # 如果起始页大于1，显示第一页和省略号
+                if start_page > 1:
+                    pagination_html += f"<a href='{self.context_path}/static-pages/?page=1' class='page-btn'>1</a>"
+                    if start_page > 2:
+                        pagination_html += "<span class='page-btn ellipsis'>...</span>"
+                
+                # 显示当前页前后5页
+                for i in range(start_page, end_page + 1):
                     if i == page_num:
                         pagination_html += f"<span class='page-btn current'>{i}</span>"
                     else:
                         pagination_html += f"<a href='{self.context_path}/static-pages/?page={i}' class='page-btn'>{i}</a>"
+                
+                # 如果结束页小于总页数，显示省略号和最后一页
+                if end_page < total_pages:
+                    if end_page < total_pages - 1:
+                        pagination_html += "<span class='page-btn ellipsis'>...</span>"
+                    pagination_html += f"<a href='{self.context_path}/static-pages/?page={total_pages}' class='page-btn'>{total_pages}</a>"
                 
                 # 下一页
                 if page_num < total_pages:
                     pagination_html += f"<a href='{self.context_path}/static-pages/?page={page_num+1}' class='page-btn next'>下一页</a>"
                 else:
                     pagination_html += "<span class='page-btn next disabled'>下一页</span>"
+                
+                # 跳转输入框
+                pagination_html += f"""
+                <div class='page-jump'>
+                    <input type='number' id='jumpPage' min='1' max='{total_pages}' placeholder='页码' class='jump-input' />
+                    <button onclick="jumpToPage({total_pages})" class='jump-btn'>跳转</button>
+                </div>
+                <script>
+                    function jumpToPage(totalPages) {{
+                        var pageNum = document.getElementById('jumpPage').value;
+                        pageNum = parseInt(pageNum);
+                        if (pageNum >= 1 && pageNum <= totalPages) {{
+                            window.location.href = '{self.context_path}/static-pages/?page=' + pageNum;
+                        }} else {{
+                            alert('请输入有效的页码 (1-' + totalPages + ')');
+                        }}
+                    }}
+                </script>
+                """
                 
                 pagination_html += "</div>"
             
