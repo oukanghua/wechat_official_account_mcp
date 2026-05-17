@@ -118,7 +118,7 @@ class AIService:
             # 验证消息格式
             for msg in full_messages:
                 if not isinstance(msg, dict) or 'role' not in msg or 'content' not in msg:
-                    logger.error(f"无效的消息格式: {msg}")
+                    logger.error("无效的消息格式", exc_info=True)
                     return "消息格式错误"
             
             # 调用OpenAI API
@@ -156,7 +156,7 @@ class AIService:
                             # 对于流式响应，需要先读取内容才能访问text属性
                             error_content = await response.aread()
                             error_text = error_content.decode('utf-8') if error_content else ''
-                            logger.error(f"AI API调用失败: {response.status_code} - {error_text}")
+                            logger.error("AI API调用失败", exc_info=True)
                             return f"AI服务暂时不可用: {response.status_code}"
                         
                         # 处理流式响应
@@ -201,10 +201,10 @@ class AIService:
                             content = result['choices'][0]['message']['content']
                             return content
                         else:
-                            logger.error(f"API返回格式异常: {result}")
+                            logger.error("API返回格式异常", exc_info=True)
                             return "AI服务返回格式异常"
                     else:
-                        logger.error(f"AI API调用失败: {response.status_code} - {response.text}")
+                        logger.error("AI API调用失败", exc_info=True)
                         return f"AI服务暂时不可用: {response.status_code}"
                 except httpx.RemoteProtocolError:
                     # 处理连接错误，重新初始化客户端
@@ -216,7 +216,7 @@ class AIService:
             logger.error("AI API调用超时")
             return "AI服务响应超时，请稍后重试"
         except Exception as e:
-            logger.error(f"获取AI回复时发生错误: {e}")
+            logger.error("获取AI回复时发生错误", exc_info=True)
             return f"服务器开小差了: {str(e)}"
     
     async def simple_chat(self, user_message: str, conversation_history: Optional[List[Dict[str, str]]] = None, stream: bool = False, timeout: float = None) -> str:
@@ -239,7 +239,7 @@ class AIService:
             return await self.get_reply(messages, stream=stream, timeout=timeout)
             
         except Exception as e:
-            logger.error(f"简单对话时发生错误: {e}")
+            logger.error("简单对话时发生错误", exc_info=True)
             return f"对话失败: {str(e)}"
     
     async def stream_chat(self, user_message: str, conversation_history: Optional[List[Dict[str, str]]] = None, timeout: float = None) -> AsyncGenerator[str, None]:
@@ -330,10 +330,9 @@ class AIService:
             logger.error("AI API调用超时")
             yield "AI服务响应超时，请稍后重试"
         except Exception as e:
-            # 确保异常信息以UTF-8编码处理
-            error_msg = f"流式对话时发生错误: {str(e)}"
-            logger.error(error_msg)
-            yield f"对话失败: {str(e)}"
+            # 使用 exc_info=True 来记录异常，避免编码问题
+            logger.error("流式对话时发生错误", exc_info=True)
+            yield f"对话失败: {type(e).__name__}"
     
     def _load_config_from_file(self):
         """
@@ -363,7 +362,7 @@ class AIService:
                     
                 logger.info(f"已从配置文件加载AI服务配置: {config_file}")
             except Exception as e:
-                logger.error(f"从配置文件加载配置失败: {e}")
+                logger.error("从配置文件加载配置失败", exc_info=True)
     
     def save_config(self, api_url: str, api_key: str, model: str, system_prompt: str, max_tokens: int = 1000, temperature: float = 0.7, timeout: float = 30.0) -> bool:
         """
@@ -411,7 +410,7 @@ class AIService:
             return True
             
         except Exception as e:
-            logger.error(f"保存AI服务配置失败: {e}")
+            logger.error("保存AI服务配置失败", exc_info=True)
             return False
     
     def get_config_info(self) -> Dict[str, Any]:
@@ -501,6 +500,6 @@ def set_ai_service(service_type: str = "web", api_url: Optional[str] = None, api
                 system_prompt=system_prompt
         )
     except Exception as e:
-        logger.error(f"设置AI服务失败: {e}")
+        logger.error("设置AI服务失败", exc_info=True)
         return False
     return True
