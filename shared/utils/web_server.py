@@ -1187,7 +1187,7 @@ class StaticPageServer:
                 self.wechat_msg_locks[msg_id] = threading.Lock()
             return self.wechat_msg_locks[msg_id]
     
-    def _build_wechat_response_xml(self, from_user: str, to_user: str, content: str) -> str:
+    def _build_wechat_response_xml(self, from_user: str, to_user: str, content: str) -> bytes:
         """
         构建微信文本消息响应的XML格式
         
@@ -1197,9 +1197,9 @@ class StaticPageServer:
             content: 回复内容
             
         Returns:
-            格式化的XML响应字符串
+            格式化的XML响应字节数组（UTF-8编码）
         """
-        return f"""<?xml version="1.0" encoding="UTF-8"?>
+        xml_str = f"""<?xml version="1.0" encoding="UTF-8"?>
                     <xml>
                         <ToUserName><![CDATA[{from_user}]]></ToUserName>
                         <FromUserName><![CDATA[{to_user}]]></FromUserName>
@@ -1207,6 +1207,7 @@ class StaticPageServer:
                         <MsgType><![CDATA[text]]></MsgType>
                         <Content><![CDATA[{content}]]></Content>
                     </xml>"""
+        return xml_str.encode('utf-8')
     
     def _handle_wechat_message(self):
         """处理微信消息，调用AI服务自动回复"""
